@@ -1,0 +1,679 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  ArrowLeft,
+  Check,
+  Image as ImageIcon,
+  Loader2,
+  Save,
+  Trash2,
+} from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+import { CATEGORIES } from "@/lib/siteConfig";
+
+const FALLBACK_CATEGORY = "UK Snacks";
+
+const EMPTY_FORM = {
+  name: "",
+  description: "",
+  category: FALLBACK_CATEGORY,
+  price: "",
+  stock: "0",
+  image: "",
+  featured: false,
+  best_seller: false,
+  new_arrival: false,
+  special_offer: false,
+  active: true,
+};
+
+function slugify(value) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getCategoryValue(category) {
+  if (typeof category === "string") {
+    return category;
+  }
+
+  return category?.name || category?.slug || "";
+}
+
+export default function AdminProductForm() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  const editing = Boolean(id);
+
+  const categories = useMemo(() => {
+    const list = CATEGORIES
+      .map(getCategoryValue)
+      .filter(Boolean);
+
+    return list.length > 0
+      ? list
+      : [FALLBACK_CATEGORY];
+  }, []);
+
+  const [form, setForm] = useState({
+    ...EMPTY_FORM,
+    category: categories[0] || FALLBACK_CATEGORY,
+  });
+
+  const [loading, setLoading] = useState(editing);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!editing) {
+      setLoading(false);
+      return;
+    }
+
+    const loadProduct = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const { data, error: queryError } =
+          await supabase
+            .from("products")
+            .select("*")
+            .eq("id", id)
+            .single();
+
+        if (queryError) {
+          throw queryError;
+        }
+
+        if (!data) {
+          throw new Error("Product not found.");
+        }
+
+        setForm({
+          name: data.name || "",
+          description: data.description || "",
+          category:
+            data.category ||
+            categories[0] ||
+            FALLBACK_CATEGORY,
+          price: data.price ?? "",
+          stock: data.stock ?? 0,
+          image:
+            Array.isArray(data.images) &&
+            data.images.length > 0
+              ? data.images[0]
+              : "",
+          featured: Boolean(data.featured),
+          best_seller: Boolean(data.best_seller),
+          new_arrival: Boolean(data.new_arrival),
+          special_offer: Boolean(data.special_offer),
+          active: data.active !== false,
+        });
+      } catch (err) {
+        console.error(
+          "Failed to load product:",
+          err
+        );
+
+        setError(
+          err?.message ||
+            "Could not load product."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProduct();
+  }, [editing, id, categories]);
+
+  const updateField = (field, value) => {
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    setSaving(true);
+    setError("");
+
+    try {
+      const name = form.name.trim();
+      const price = Number(form.price);
+      const stock = Math.max(
+        0,
+        Number(form.stock) || 0
+      );
+
+      if (!name) {
+        throw new Error(
+          "Please enter the product name."
+        );
+      }
+
+      if (!Number.isFinite(price) || price < 0) {
+        throw new Error(
+          "Please enter a valid price."
+        );
+      }
+
+      const category =
+        form.category ||
+        categories[0] ||
+        FALLBACK_CATEGORY;
+
+      const slug = slugify(name);
+
+      const image = form.image.trim();
+
+      const payload = {
+        name,
+        slug,
+        description:
+          form.description.trim() || null,
+        category,
+        price,
+        compare_at_price: null,
+        stock,
+        low_stock_threshold: 5,
+        images: image ? [image] : [],
+        featured: Boolean(form.featured),
+        best_seller: Boolean(form.best_seller),
+        new_arrival: Boolean(form.new_arrival),
+        special_offer: Boolean(form.special_offer),
+        active: Boolean(form.active),
+        updated_at: new Date().toISOString(),
+      };
+
+      if (editing) {
+        const { error: updateError } =
+          await supabase
+            .from("products")
+            .update(payload)
+            .eq("id", id);
+
+        if (updateError) {
+          throw updateError;
+        }
+      } else {
+        const { error: insertError } =
+          await supabase
+            .from("products")
+            .insert(payload);
+
+        if (insertError) {
+          throw insertError;
+        }
+      }
+
+      navigate("/admin/products", {
+        replace: true,
+      });
+    } catch (err) {
+      console.error(
+        "Failed to save product:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Could not save product."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!editing) return;
+
+    const confirmed = window.confirm(
+      `Delete "${form.name || "this product"}" permanently?`
+    );
+
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError("");
+
+    try {
+      const { error: deleteError } =
+        await supabase
+          .from("products")
+          .delete()
+          .eq("id", id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      navigate("/admin/products", {
+        replace: true,
+      });
+    } catch (err) {
+      console.error(
+        "Failed to delete product:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Could not delete product."
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#fafafa]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#ff1f8f]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#fafafa] text-[#111111]">
+      {/* Header */}
+      <header className="border-b border-black/[0.06] bg-white">
+        <div className="mx-auto max-w-3xl px-5 py-5 sm:px-8">
+          <Link
+            to="/admin/products"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-black/45 transition hover:text-[#ff1f8f]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Products
+          </Link>
+
+          <div className="mt-6 flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1f8f]">
+                {editing
+                  ? "Edit Product"
+                  : "New Product"}
+              </p>
+
+              <h1 className="mt-1 font-heading text-3xl font-bold">
+                {editing
+                  ? "Edit Product"
+                  : "Add Product"}
+              </h1>
+
+              <p className="mt-2 text-sm text-black/45">
+                {editing
+                  ? "Update the product information below."
+                  : "Add a product to your store in a few simple steps."}
+              </p>
+            </div>
+
+            {editing && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={saving || deleting}
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-600 hover:text-white disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl px-5 py-8 sm:px-8">
+        {error && (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+            <p className="font-semibold">
+              Please check the form
+            </p>
+            <p className="mt-1">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          {/* Basic information */}
+          <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm sm:p-7">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#ff1f8f]">
+                Step 1
+              </p>
+
+              <h2 className="mt-1 text-xl font-bold">
+                Product details
+              </h2>
+            </div>
+
+            <div className="mt-6 space-y-5">
+              <Field label="Product name">
+                <input
+                  value={form.name}
+                  onChange={(event) =>
+                    updateField(
+                      "name",
+                      event.target.value
+                    )
+                  }
+                  className="admin-input"
+                  placeholder="e.g. Cadbury Oreo Snack Box"
+                  required
+                />
+              </Field>
+
+              <Field label="Category">
+                <select
+                  value={form.category}
+                  onChange={(event) =>
+                    updateField(
+                      "category",
+                      event.target.value
+                    )
+                  }
+                  className="admin-input"
+                >
+                  {categories.map((category) => (
+                    <option
+                      key={category}
+                      value={category}
+                    >
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field
+                label="Description"
+                hint="Tell customers what they are getting."
+              >
+                <textarea
+                  value={form.description}
+                  onChange={(event) =>
+                    updateField(
+                      "description",
+                      event.target.value
+                    )
+                  }
+                  className="admin-input min-h-32 resize-y"
+                  placeholder="Write a simple product description..."
+                />
+              </Field>
+            </div>
+          </section>
+
+          {/* Pricing */}
+          <section className="mt-5 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm sm:p-7">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#ff1f8f]">
+                Step 2
+              </p>
+
+              <h2 className="mt-1 text-xl font-bold">
+                Price & stock
+              </h2>
+            </div>
+
+            <div className="mt-6 grid gap-5 sm:grid-cols-2">
+              <Field label="Price (GHS)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.price}
+                  onChange={(event) =>
+                    updateField(
+                      "price",
+                      event.target.value
+                    )
+                  }
+                  className="admin-input"
+                  placeholder="0.00"
+                  required
+                />
+              </Field>
+
+              <Field label="Stock quantity">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.stock}
+                  onChange={(event) =>
+                    updateField(
+                      "stock",
+                      event.target.value
+                    )
+                  }
+                  className="admin-input"
+                  placeholder="0"
+                  required
+                />
+              </Field>
+            </div>
+          </section>
+
+          {/* Image */}
+          <section className="mt-5 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm sm:p-7">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#ff1f8f]">
+                Step 3
+              </p>
+
+              <h2 className="mt-1 text-xl font-bold">
+                Product image
+              </h2>
+
+              <p className="mt-1 text-sm text-black/40">
+                Paste the image URL for this product.
+              </p>
+            </div>
+
+            <div className="mt-6">
+              <div className="relative">
+                <ImageIcon className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-black/25" />
+
+                <input
+                  type="url"
+                  value={form.image}
+                  onChange={(event) =>
+                    updateField(
+                      "image",
+                      event.target.value
+                    )
+                  }
+                  className="admin-input pl-12"
+                  placeholder="https://example.com/product-image.jpg"
+                />
+              </div>
+
+              {form.image.trim() && (
+                <div className="mt-4 overflow-hidden rounded-2xl border border-black/[0.07] bg-[#fafafa]">
+                  <img
+                    src={form.image}
+                    alt="Product preview"
+                    className="h-64 w-full object-contain"
+                    onError={(event) => {
+                      event.currentTarget.style.display =
+                        "none";
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Store options */}
+          <section className="mt-5 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm sm:p-7">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#ff1f8f]">
+                Step 4
+              </p>
+
+              <h2 className="mt-1 text-xl font-bold">
+                Store visibility
+              </h2>
+
+              <p className="mt-1 text-sm text-black/40">
+                Choose how this product appears in your shop.
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <Toggle
+                label="Visible in shop"
+                checked={form.active}
+                onChange={(value) =>
+                  updateField("active", value)
+                }
+              />
+
+              <Toggle
+                label="Featured"
+                checked={form.featured}
+                onChange={(value) =>
+                  updateField(
+                    "featured",
+                    value
+                  )
+                }
+              />
+
+              <Toggle
+                label="Best seller"
+                checked={form.best_seller}
+                onChange={(value) =>
+                  updateField(
+                    "best_seller",
+                    value
+                  )
+                }
+              />
+
+              <Toggle
+                label="New arrival"
+                checked={form.new_arrival}
+                onChange={(value) =>
+                  updateField(
+                    "new_arrival",
+                    value
+                  )
+                }
+              />
+
+              <Toggle
+                label="Special offer"
+                checked={form.special_offer}
+                onChange={(value) =>
+                  updateField(
+                    "special_offer",
+                    value
+                  )
+                }
+              />
+            </div>
+          </section>
+
+          {/* Submit */}
+          <div className="mt-6">
+            <button
+              type="submit"
+              disabled={saving || deleting}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff1f8f] px-5 py-4 text-base font-bold text-white shadow-sm transition hover:bg-[#e60078] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  {editing
+                    ? "Saving changes..."
+                    : "Creating product..."}
+                </>
+              ) : (
+                <>
+                  <Save className="h-5 w-5" />
+                  {editing
+                    ? "Save Changes"
+                    : "Create Product"}
+                </>
+              )}
+            </button>
+
+            <p className="mt-3 text-center text-xs text-black/35">
+              Your product will appear in the shop when it is
+              marked as visible.
+            </p>
+          </div>
+        </form>
+      </main>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}) {
+  return (
+    <label className="block">
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <span className="text-sm font-semibold text-black">
+          {label}
+        </span>
+
+        {hint && (
+          <span className="text-xs text-black/35">
+            {hint}
+          </span>
+        )}
+      </div>
+
+      {children}
+    </label>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="flex items-center justify-between rounded-2xl border border-black/[0.07] bg-[#fafafa] p-4 text-left transition hover:border-[#ff1f8f]/40"
+    >
+      <span className="text-sm font-semibold">
+        {label}
+      </span>
+
+      <span
+        className={`relative h-7 w-12 rounded-full transition ${
+          checked
+            ? "bg-[#ff1f8f]"
+            : "bg-black/15"
+        }`}
+      >
+        <span
+          className={`absolute top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm transition ${
+            checked ? "left-6" : "left-1"
+          }`}
+        >
+          {checked && (
+            <Check className="h-3 w-3 text-[#ff1f8f]" />
+          )}
+        </span>
+      </span>
+    </button>
+  );
+}
