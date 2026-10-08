@@ -25,7 +25,7 @@ export const REGIONS = [
 export const ghanaRegions = REGIONS.map((r) => r.name);
 
 // Our dispatch hub in Accra — used for distance-based delivery fees and tracking maps
-export const ACCRA_HUB = [5.6037, -0.1870];
+export const ACCRA_HUB = [5.605594598008288, -0.13069602061640645];
 
 // Haversine distance in km between two [lat, lng] points
 export function haversineKm(lat1, lng1, lat2, lng2) {
@@ -47,10 +47,10 @@ export const SITE_CONFIG = {
   tagline: "Stay Plugged In",
   domain: "PluggedByAyeley.com",
   ukSourced: "Original UK-Sourced Products",
-  whatsappNumber: "233200000000", // Replace with actual WhatsApp number (country code, no +)
-  whatsappDisplay: "+233 20 000 0000",
-  email: "hello@pluggedbyayeley.com",
-  phone: "+233 20 000 0000",
+  whatsappNumber: "233 535410877", // Replace with actual WhatsApp number (country code, no +)
+  whatsappDisplay: "+233 535410877",
+  email: "pluggeebyayeley@outlook.com",
+  phone: "+233535410877",
   snapchat: "itz_Ayeley",
   social: [
     { platform: "Snapchat", handle: "@itz_Ayeley", url: "https://www.snapchat.com/add/itz_Ayeley", icon: "snapchat" },
