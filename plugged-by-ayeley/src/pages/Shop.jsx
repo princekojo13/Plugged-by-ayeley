@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   SlidersHorizontal,
   X,
@@ -213,7 +213,12 @@ export default function Shop() {
           >
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
+            <label htmlFor="shop-search" className="sr-only">
+              Search products
+            </label>
             <input
+              id="shop-search"
+              name="search"
               type="text"
               value={searchInput}
               onChange={(event) =>
@@ -243,6 +248,7 @@ export default function Shop() {
             <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
 
             <select
+              aria-label="Sort products"
               value={sort}
               onChange={(event) =>
                 updateParam("sort", event.target.value)
@@ -362,20 +368,31 @@ export default function Shop() {
             ) : filteredProducts.length === 0 ? (
               <div className="py-20 text-center">
                 <p className="mb-2 font-heading text-lg font-semibold text-carbon">
-                  No products found
+                  {activeFilterCount > 0 ? "No products found" : "We’re updating our collection"}
                 </p>
 
                 <p className="mb-6 text-sm text-muted-foreground">
-                  Try changing your search or filters.
+                  {activeFilterCount > 0
+                    ? "Try changing your search or filters."
+                    : "Please check back soon, or contact us if you’re looking for a particular product."}
                 </p>
 
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="rounded-md bg-carbon px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-pink"
-                >
-                  Clear Filters
-                </button>
+                {activeFilterCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="rounded-md bg-carbon px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-pink"
+                  >
+                    Clear Filters
+                  </button>
+                ) : (
+                  <Link
+                    to="/contact"
+                    className="inline-flex items-center rounded-md bg-carbon px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-pink"
+                  >
+                    Contact Us
+                  </Link>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6">
@@ -424,11 +441,12 @@ export default function Shop() {
               />
 
               <div className="mt-6">
-                <label className="mb-2 block text-xs uppercase tracking-wider text-muted-foreground">
+                <label htmlFor="shop-sort-mobile" className="mb-2 block text-xs uppercase tracking-wider text-muted-foreground">
                   Sort By
                 </label>
 
                 <select
+                  id="shop-sort-mobile"
                   value={sort}
                   onChange={(event) =>
                     updateParam(

@@ -210,9 +210,9 @@ export default function AdminProducts() {
           ?.toLowerCase()
           .includes(query);
 
-      const stock = Number(product.stock || 0);
+      const stock = Number(product.stock_quantity || 0);
       const threshold = Number(
-        product.low_stock_threshold || 5
+        product.low_stock_threshold ?? 5
       );
 
       const matchesStatus =
@@ -256,11 +256,11 @@ export default function AdminProducts() {
   const lowStockProducts = products.filter(
     (product) => {
       const stock = Number(
-        product.stock || 0
+        product.stock_quantity || 0
       );
 
       const threshold = Number(
-        product.low_stock_threshold || 5
+        product.low_stock_threshold ?? 5
       );
 
       return stock > 0 && stock <= threshold;
@@ -270,7 +270,7 @@ export default function AdminProducts() {
   const outOfStockProducts =
     products.filter(
       (product) =>
-        Number(product.stock || 0) <= 0
+        Number(product.stock_quantity || 0) <= 0
     ).length;
 
   const clearFilters = () => {
@@ -791,9 +791,7 @@ function ProductActions({
 
 function ProductImage({ product }) {
   const image =
-    Array.isArray(product.images)
-      ? product.images[0]
-      : "";
+    product.image_url || product.additional_images?.[0] || "";
 
   if (!image) {
     return (
@@ -814,11 +812,11 @@ function ProductImage({ product }) {
 
 function StockBadge({ product }) {
   const stock = Number(
-    product.stock || 0
+    product.stock_quantity || 0
   );
 
   const threshold = Number(
-    product.low_stock_threshold || 5
+    product.low_stock_threshold ?? 5
   );
 
   if (stock <= 0) {

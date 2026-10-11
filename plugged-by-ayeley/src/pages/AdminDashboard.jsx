@@ -4,14 +4,17 @@ import {
   ArrowUpRight,
   BarChart3,
   Clock3,
-  MessageSquare,
+  CreditCard,
+  LogOut,
   Package,
   RefreshCw,
   Settings,
   ShoppingBag,
   Star,
+  Users,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/lib/AuthContext";
 
 function formatGhs(value) {
   return new Intl.NumberFormat("en-GH", {
@@ -32,22 +35,22 @@ function formatDate(value) {
 
 function statusClass(status) {
   switch (status) {
-    case "Delivered":
+    case "delivered":
       return "bg-emerald-50 text-emerald-700";
 
-    case "Cancelled":
+    case "cancelled":
       return "bg-red-50 text-red-700";
 
-    case "Out for delivery":
+    case "out_for_delivery":
       return "bg-purple-50 text-purple-700";
 
-    case "Shipped":
+    case "processing":
       return "bg-blue-50 text-blue-700";
 
-    case "Processing":
+    case "preparing":
       return "bg-cyan-50 text-cyan-700";
 
-    case "Confirmed":
+    case "confirmed":
       return "bg-amber-50 text-amber-700";
 
     default:
@@ -55,12 +58,17 @@ function statusClass(status) {
   }
 }
 
+function formatOrderStatus(status) {
+  return String(status || "pending")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function AdminDashboard() {
+  const { logout } = useAuth();
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [reviews, setReviews] = useState([]);
-  const [contacts, setContacts] = useState([]);
-  const [wholesale, setWholesale] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -81,12 +89,10 @@ export default function AdminDashboard() {
           productsResult,
           ordersResult,
           reviewsResult,
-          contactsResult,
-          wholesaleResult,
         ] = await Promise.all([
           supabase
             .from("products")
-            .select("id,name,price,stock,active,created_at")
+            .select("id,name,price,stock:stock_quantity,low_stock_threshold,active,created_at")
             .order("created_at", {
               ascending: false,
             }),
@@ -94,7 +100,7 @@ export default function AdminDashboard() {
           supabase
             .from("orders")
             .select(
-              "id,order_number,full_name,total,status,payment_status,payment_method,created_at"
+              "id,order_number,full_name:customer_name,total,status:order_status,payment_status,payment_method,created_at"
             )
             .order("created_at", {
               ascending: false,
@@ -103,35 +109,18 @@ export default function AdminDashboard() {
           supabase
             .from("reviews")
             .select(
-              "id,customer_name,rating,review,approved,created_at"
+              "id,customer_name,rating,review:review_text,approved,created_at"
             )
             .order("created_at", {
               ascending: false,
             }),
 
-          supabase
-            .from("contact_messages")
-            .select("id,name,email,message,created_at")
-            .order("created_at", {
-              ascending: false,
-            }),
-
-          supabase
-            .from("wholesale_inquiries")
-            .select(
-              "id,business_name,contact_name,email,message,created_at"
-            )
-            .order("created_at", {
-              ascending: false,
-            }),
         ]);
 
         const errors = [
           productsResult.error,
           ordersResult.error,
           reviewsResult.error,
-          contactsResult.error,
-          wholesaleResult.error,
         ].filter(Boolean);
 
         if (errors.length > 0) {
@@ -141,8 +130,6 @@ export default function AdminDashboard() {
         setProducts(productsResult.data || []);
         setOrders(ordersResult.data || []);
         setReviews(reviewsResult.data || []);
-        setContacts(contactsResult.data || []);
-        setWholesale(wholesaleResult.data || []);
       } catch (err) {
         console.error("Failed to load admin dashboard:", err);
 
@@ -161,34 +148,38 @@ export default function AdminDashboard() {
     loadDashboard();
   }, [loadDashboard]);
 
-  const totalRevenue = orders
-    .filter(
-      (order) =>
-        order.payment_status === "paid" ||
-        order.payment_method === "pay_on_delivery"
-    )
+  useEffect(() => {
+    const refreshForNewOrder = () => void loadDashboard(true);
+    window.addEventListener("admin:order-inserted", refreshForNewOrder);
+    return () => window.removeEventListener("admin:order-inserted", refreshForNewOrder);
+  }, [loadDashboard]);
+
+  const paidValue = orders
+    .filter((order) => order.payment_status === "paid")
     .reduce(
       (sum, order) => sum + Number(order.total || 0),
       0
     );
 
   const pendingOrders = orders.filter(
-    (order) => order.status === "Pending"
+    (order) => order.status === "pending"
+  ).length;
+  const pendingPayments = orders.filter(
+    (order) => order.payment_status !== "paid"
   ).length;
 
   const deliveredOrders = orders.filter(
-    (order) => order.status === "Delivered"
+    (order) => order.status === "delivered"
   ).length;
 
   const lowStockProducts = products.filter(
-    (product) => Number(product.stock || 0) <= 5
+    (product) => Number(product.stock || 0) <= Number(product.low_stock_threshold ?? 5)
   ).length;
 
   const pendingReviews = reviews.filter(
     (review) => !review.approved
   ).length;
 
-  const totalMessages = contacts.length + wholesale.length;
 
   const recentOrders = orders.slice(0, 5);
   const recentReviews = reviews.slice(0, 4);
@@ -213,19 +204,30 @@ export default function AdminDashboard() {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => loadDashboard(true)}
-              disabled={refreshing}
-              className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#ff1f8f] hover:text-[#ff1f8f] disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${
-                  refreshing ? "animate-spin" : ""
-                }`}
-              />
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-red-300 hover:text-red-600"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </button>
+
+              <button
+                type="button"
+                onClick={() => loadDashboard(true)}
+                disabled={refreshing}
+                className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#ff1f8f] hover:text-[#ff1f8f] disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${
+                    refreshing ? "animate-spin" : ""
+                  }`}
+                />
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -253,18 +255,23 @@ export default function AdminDashboard() {
                 label="Total Orders"
                 value={orders.length}
                 note={
-                  pendingOrders > 0
-                    ? `${pendingOrders} need attention`
-                    : "No pending orders"
+                  [
+                    pendingOrders > 0
+                      ? `${pendingOrders} order${pendingOrders === 1 ? "" : "s"} need attention`
+                      : null,
+                    pendingPayments > 0
+                      ? `${pendingPayments} payment${pendingPayments === 1 ? "" : "s"} pending`
+                      : null,
+                  ].filter(Boolean).join(" · ") || "No pending orders or payments"
                 }
                 pink
               />
 
               <StatCard
                 icon={<BarChart3 className="h-5 w-5" />}
-                label="Order Value"
-                value={formatGhs(totalRevenue)}
-                note="Current order value"
+                label="Paid Value"
+                value={formatGhs(paidValue)}
+                note="Orders marked paid only"
               />
 
               <StatCard
@@ -279,10 +286,10 @@ export default function AdminDashboard() {
               />
 
               <StatCard
-                icon={<MessageSquare className="h-5 w-5" />}
-                label="Messages"
-                value={totalMessages}
-                note={`${pendingReviews} reviews pending`}
+                icon={<Star className="h-5 w-5" />}
+                label="Reviews to approve"
+                value={pendingReviews}
+                note={`${reviews.length} customer reviews total`}
               />
             </section>
 
@@ -302,7 +309,7 @@ export default function AdminDashboard() {
                 </p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
                 <ManagementCard
                   href="/admin/products"
                   icon={<Package className="h-6 w-6" />}
@@ -319,10 +326,12 @@ export default function AdminDashboard() {
                   href="/admin/orders"
                   icon={<ShoppingBag className="h-6 w-6" />}
                   title="Orders"
-                  description="View orders and update their status."
+                  description="Review orders, track payments and update delivery status."
                   badge={
-                    pendingOrders > 0
-                      ? `${pendingOrders} pending`
+                    pendingPayments > 0
+                      ? `${pendingPayments} payment${pendingPayments === 1 ? "" : "s"} pending`
+                      : pendingOrders > 0
+                        ? `${pendingOrders} pending`
                       : "All caught up"
                   }
                 />
@@ -340,30 +349,37 @@ export default function AdminDashboard() {
                 />
 
                 <ManagementCard
-                  href="/admin/messages"
-                  icon={<MessageSquare className="h-6 w-6" />}
-                  title="Messages"
-                  description="Read customer and wholesale enquiries."
-                  badge={`${totalMessages} total`}
-                />
-
-                <ManagementCard
                   href="/admin/settings"
                   icon={<Settings className="h-6 w-6" />}
                   title="Settings"
                   description="Manage store details, payments, delivery and store status."
                   badge="Store controls"
                 />
+
+                <ManagementCard
+                  href="/admin/assistants"
+                  icon={<Users className="h-6 w-6" />}
+                  title="Assistants"
+                  description="Invite staff and review their latest sign-in."
+                  badge="Limited access"
+                />
               </div>
             </section>
 
             {/* Overview */}
-            <section className="mt-9 grid gap-4 md:grid-cols-3">
+            <section className="mt-9 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <OverviewCard
                 icon={<Clock3 className="h-5 w-5" />}
                 label="Pending Orders"
                 value={pendingOrders}
                 description="Orders that need attention"
+              />
+
+              <OverviewCard
+                icon={<CreditCard className="h-5 w-5" />}
+                label="Pending Payments"
+                value={pendingPayments}
+                description="Orders not yet marked paid"
               />
 
               <OverviewCard
@@ -423,7 +439,7 @@ export default function AdminDashboard() {
                               order.status
                             )}`}
                           >
-                            {order.status}
+                            {formatOrderStatus(order.status)}
                           </span>
                         </div>
                       </div>

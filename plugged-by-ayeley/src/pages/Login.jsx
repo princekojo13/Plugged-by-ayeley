@@ -15,10 +15,12 @@ export default function Login() {
   const {
     isAuthenticated,
     isAdmin,
+    isAssistant,
     loading,
-    loginAsAdmin,
+    loginAsStaff,
   } = useAuth();
 
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -26,6 +28,9 @@ export default function Login() {
 
   if (!loading && isAuthenticated && isAdmin) {
     return <Navigate to="/admin" replace />;
+  }
+  if (!loading && isAuthenticated && isAssistant) {
+    return <Navigate to="/assistant" replace />;
   }
 
   const handleSubmit = async (event) => {
@@ -35,10 +40,8 @@ export default function Login() {
       return;
     }
 
-    const cleanPassword = password.trim();
-
-    if (!cleanPassword) {
-      setError("Enter the admin password.");
+    if (!email.trim() || !password) {
+      setError("Enter your email and password.");
       return;
     }
 
@@ -46,17 +49,18 @@ export default function Login() {
     setError("");
 
     try {
-      await loginAsAdmin(cleanPassword);
+      const { role } = await loginAsStaff(email, password);
 
-      const destination =
-        location.state?.from || "/admin";
+      const destination = role === "assistant"
+        ? "/assistant"
+        : location.state?.from || "/admin";
 
       navigate(destination, {
         replace: true,
       });
     } catch (err) {
       setError(
-        err?.message || "Invalid admin password."
+        err?.message || "Invalid email or password."
       );
     } finally {
       setSubmitting(false);
@@ -72,7 +76,7 @@ export default function Login() {
           </div>
 
           <h1 className="text-3xl font-bold tracking-tight">
-            Admin Portal
+            Staff Portal
           </h1>
 
           <p className="mt-2 text-sm text-slate-400">
@@ -83,12 +87,11 @@ export default function Login() {
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6 shadow-2xl backdrop-blur">
           <div className="mb-6">
             <h2 className="text-xl font-semibold">
-              Administrator sign in
+              Staff sign in
             </h2>
 
             <p className="mt-1 text-sm text-slate-400">
-              This area is private and restricted to the
-              store administrator.
+              Sign in with the email invitation from your store administrator.
             </p>
           </div>
 
@@ -98,17 +101,38 @@ export default function Login() {
           >
             <div>
               <label
-                htmlFor="admin-password"
+                htmlFor="staff-email"
                 className="mb-2 block text-sm font-medium text-slate-200"
               >
-                Admin password
+                Email
+              </label>
+
+              <input
+                id="staff-email"
+                name="email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                autoComplete="username"
+                disabled={submitting}
+                maxLength={254}
+                required
+                className="mb-4 w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-slate-600 focus:border-white/30"
+              />
+
+              <label
+                htmlFor="staff-password"
+                className="mb-2 block text-sm font-medium text-slate-200"
+              >
+                Password
               </label>
 
               <div className="relative">
                 <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
 
                 <input
-                  id="admin-password"
+                id="staff-password"
                   name="password"
                   type={
                     showPassword
@@ -119,7 +143,7 @@ export default function Login() {
                   onChange={(event) =>
                     setPassword(event.target.value)
                   }
-                  placeholder="Enter admin password"
+                  placeholder="Enter your password"
                   autoComplete="current-password"
                   disabled={submitting}
                   maxLength={1024}
@@ -165,12 +189,12 @@ export default function Login() {
             >
               {submitting
                 ? "Signing in..."
-                : "Enter Admin Panel"}
+                : "Sign in"}
             </button>
           </form>
 
           <div className="mt-5 border-t border-white/10 pt-5 text-center text-xs text-slate-500">
-            Admin sessions automatically expire after
+            Staff sessions automatically expire after
             2 hours.
           </div>
         </div>

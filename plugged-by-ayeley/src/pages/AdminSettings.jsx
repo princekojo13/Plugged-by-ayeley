@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react";
-import {
-  ArrowLeft,
-  Check,
-  Loader2,
-  Save,
-  Settings,
-} from "lucide-react";
+import { ArrowLeft, Check, Loader2, Save, Settings } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
+import { queryClientInstance } from "@/lib/query-client";
 
 const DEFAULT_SETTINGS = {
-  id: 1,
-
-  brand_name: "Plugged by Ayeley",
+  id: true,
+  store_name: "Plugged by Ayeley",
   tagline: "",
   email: "",
   phone: "",
@@ -23,18 +17,38 @@ const DEFAULT_SETTINGS = {
   facebook: "",
   tiktok: "",
   address: "",
-
+  business_latitude: 5.605595,
+  business_longitude: -0.130696,
+  delivery_rate: 10,
+  delivery_distance_unit: 7,
+  distance_multiplier: 1,
+  max_delivery_distance_km: "",
+  low_stock_default: 5,
+  cod_enabled: true,
+  paystack_enabled: true,
+  cod_accra_only: true,
+  cod_max_distance_km: 30,
+  paystack_hold_minutes: 30,
+  cod_hold_minutes: 1440,
   store_open: true,
   maintenance_mode: false,
-
-  pay_online_enabled: true,
-  pay_on_delivery_enabled: true,
-  pay_on_delivery_accra_only: true,
-
-  delivery_fee_amount: 10,
-  delivery_distance_km: 7,
-  minimum_delivery_fee: 10,
 };
+
+const TEXT_FIELDS = [
+  ["store_name", "Store name"],
+  ["tagline", "Tagline"],
+  ["email", "Customer support email", "email"],
+  ["phone", "Phone number"],
+  ["whatsapp", "WhatsApp number"],
+  ["domain", "Website domain"],
+  ["address", "Business address"],
+];
+const SOCIAL_FIELDS = [
+  ["snapchat", "Snapchat"],
+  ["instagram", "Instagram"],
+  ["facebook", "Facebook"],
+  ["tiktok", "TikTok"],
+];
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -44,608 +58,189 @@ export default function AdminSettings() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadSettings();
-  }, []);
-
-  async function loadSettings() {
-    setLoading(true);
-    setError("");
-
-    try {
+    let active = true;
+    async function loadSettings() {
+      setLoading(true);
+      setError("");
       const { data, error: fetchError } = await supabase
         .from("store_settings")
         .select("*")
-        .eq("id", 1)
+        .eq("id", true)
         .maybeSingle();
-
+      if (!active) return;
       if (fetchError) {
-        throw fetchError;
+        setError(fetchError.message || "Could not load store settings.");
+      } else if (!data) {
+        setError("The store settings row is missing in Supabase.");
+      } else {
+        setSettings({ ...DEFAULT_SETTINGS, ...data });
       }
-
-      if (data) {
-        setSettings({
-          ...DEFAULT_SETTINGS,
-          ...data,
-        });
-      }
-    } catch (err) {
-      console.error("Failed to load settings:", err);
-
-      setError(
-        err?.message || "Could not load store settings."
-      );
-    } finally {
       setLoading(false);
     }
-  }
+    void loadSettings();
+    return () => { active = false; };
+  }, []);
 
   function updateField(field, value) {
-    setSettings((current) => ({
-      ...current,
-      [field]: value,
-    }));
-
+    setSettings((current) => ({ ...current, [field]: value }));
     setSuccess("");
     setError("");
   }
 
   async function saveSettings(event) {
     event.preventDefault();
-
     setSaving(true);
     setSuccess("");
     setError("");
 
+    const numberFields = [
+      "business_latitude", "business_longitude", "delivery_rate",
+      "delivery_distance_unit", "distance_multiplier", "low_stock_default",
+      "cod_max_distance_km", "paystack_hold_minutes", "cod_hold_minutes",
+    ];
+    const payload = { updated_at: new Date().toISOString() };
+    for (const [field] of TEXT_FIELDS) payload[field] = settings[field]?.trim() || null;
+    for (const [field] of SOCIAL_FIELDS) payload[field] = settings[field]?.trim() || null;
+    for (const field of numberFields) payload[field] = Number(settings[field]);
+    payload.max_delivery_distance_km = settings.max_delivery_distance_km === "" || settings.max_delivery_distance_km === null || settings.max_delivery_distance_km === undefined
+      ? null
+      : Number(settings.max_delivery_distance_km);
+    payload.cod_max_distance_km = settings.cod_max_distance_km === "" || settings.cod_max_distance_km === null || settings.cod_max_distance_km === undefined
+      ? null
+      : Number(settings.cod_max_distance_km);
+    for (const field of [
+      "cod_enabled", "paystack_enabled", "cod_accra_only", "store_open", "maintenance_mode",
+    ]) payload[field] = Boolean(settings[field]);
+
+    if (!payload.store_name?.trim() || !payload.address?.trim()) {
+      setError("Store name and business address are required.");
+      setSaving(false);
+      return;
+    }
+
+    if (!Number.isFinite(payload.business_latitude) || payload.business_latitude < -90 || payload.business_latitude > 90
+      || !Number.isFinite(payload.business_longitude) || payload.business_longitude < -180 || payload.business_longitude > 180) {
+      setError("Enter valid dispatch hub coordinates.");
+      setSaving(false);
+      return;
+    }
+    if (payload.delivery_rate < 0 || payload.delivery_distance_unit <= 0 || payload.distance_multiplier <= 0
+      || payload.low_stock_default < 0 || (payload.cod_max_distance_km !== null && payload.cod_max_distance_km < 0)
+      || payload.paystack_hold_minutes < 1 || payload.cod_hold_minutes < 1
+      || !Number.isSafeInteger(payload.low_stock_default)
+      || !Number.isSafeInteger(payload.paystack_hold_minutes)
+      || !Number.isSafeInteger(payload.cod_hold_minutes)
+      || (payload.max_delivery_distance_km !== null && payload.max_delivery_distance_km <= 0)) {
+      setError("Check the delivery, stock, and order hold values.");
+      setSaving(false);
+      return;
+    }
+
     try {
-      const payload = {
-        id: 1,
-
-        brand_name:
-          settings.brand_name?.trim() || null,
-
-        tagline:
-          settings.tagline?.trim() || null,
-
-        email:
-          settings.email?.trim() || null,
-
-        phone:
-          settings.phone?.trim() || null,
-
-        whatsapp:
-          settings.whatsapp?.trim() || null,
-
-        domain:
-          settings.domain?.trim() || null,
-
-        snapchat:
-          settings.snapchat?.trim() || null,
-
-        instagram:
-          settings.instagram?.trim() || null,
-
-        facebook:
-          settings.facebook?.trim() || null,
-
-        tiktok:
-          settings.tiktok?.trim() || null,
-
-        address:
-          settings.address?.trim() || null,
-
-        store_open:
-          Boolean(settings.store_open),
-
-        maintenance_mode:
-          Boolean(settings.maintenance_mode),
-
-        pay_online_enabled:
-          Boolean(settings.pay_online_enabled),
-
-        pay_on_delivery_enabled:
-          Boolean(settings.pay_on_delivery_enabled),
-
-        pay_on_delivery_accra_only:
-          Boolean(settings.pay_on_delivery_accra_only),
-
-        delivery_fee_amount:
-          Number(settings.delivery_fee_amount) || 10,
-
-        delivery_distance_km:
-          Number(settings.delivery_distance_km) || 7,
-
-        minimum_delivery_fee:
-          Number(settings.minimum_delivery_fee) || 10,
-
-        updated_at: new Date().toISOString(),
-      };
-
       const { data, error: saveError } = await supabase
         .from("store_settings")
-        .upsert(payload, {
-          onConflict: "id",
-        })
+        .update(payload)
+        .eq("id", true)
         .select()
-        .single();
-
-      if (saveError) {
-        throw saveError;
-      }
-
-      if (!data) {
-        throw new Error(
-          "Supabase did not return the saved settings."
-        );
-      }
-
-      setSettings({
-        ...DEFAULT_SETTINGS,
-        ...data,
-      });
-
-      setSuccess("Settings saved successfully.");
-
-      window.setTimeout(() => {
-        setSuccess("");
-      }, 4000);
+        .maybeSingle();
+      if (saveError) throw saveError;
+      if (!data) throw new Error("No settings row was updated. Check your admin access.");
+      setSettings({ ...DEFAULT_SETTINGS, ...data });
+      await queryClientInstance.invalidateQueries({ queryKey: ["store_settings"] });
+      setSuccess("Store settings saved.");
+      window.setTimeout(() => setSuccess(""), 4000);
     } catch (err) {
-      console.error("SETTINGS SAVE ERROR:", err);
-
-      setError(
-        err?.message ||
-          err?.details ||
-          err?.hint ||
-          "Could not save settings."
-      );
+      console.error("Store settings update failed:", err);
+      setError(err?.message || "Could not save store settings.");
     } finally {
       setSaving(false);
     }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#fafafa]">
-        <div className="flex min-h-screen items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[#ff1f8f]" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <FullPageLoading />;
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111111]">
       <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
           <div className="flex items-center gap-3">
-            <Link
-              to="/admin"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white transition hover:border-[#ff1f8f] hover:text-[#ff1f8f]"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1f8f]">
-                Plugged by Ayeley
-              </p>
-
-              <h1 className="font-heading text-2xl font-bold">
-                Store Settings
-              </h1>
-
-              <p className="text-sm text-black/45">
-                Control your store information and checkout settings.
-              </p>
-            </div>
+            <Link to="/admin" aria-label="Back to admin" className="flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 transition hover:border-[#ff1f8f] hover:text-[#ff1f8f]"><ArrowLeft className="h-5 w-5" /></Link>
+            <div><p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1f8f]">Plugged by Ayeley</p><h1 className="font-heading text-2xl font-bold">Store Settings</h1><p className="text-sm text-black/45">Edit your business details, checkout, delivery, and store controls.</p></div>
           </div>
-
           <Settings className="h-6 w-6 text-[#ff1f8f]" />
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-5 py-8 sm:px-8">
-        {success && (
-          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
-              <Check className="h-4 w-4" />
-            </div>
+        {success && <div role="status" className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700"><Check className="h-5 w-5" />{success}</div>}
+        {error && <div role="alert" className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">{error}</div>}
 
-            <div>
-              <p className="font-semibold">
-                Saved
-              </p>
-
-              <p>{success}</p>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-            <p className="font-semibold">
-              Save failed
-            </p>
-
-            <p className="mt-1 break-words">
-              {error}
-            </p>
-          </div>
-        )}
-
-        <form
-          onSubmit={saveSettings}
-          className="space-y-6"
-        >
-          <SettingsSection
-            title="Store Information"
-            description="Basic information customers see."
-          >
+        <form onSubmit={saveSettings} className="space-y-6">
+          <SettingsSection title="Business details" description="These details are shown around the customer-facing store.">
             <div className="grid gap-5 md:grid-cols-2">
-              <Field
-                label="Brand Name"
-                value={settings.brand_name}
-                onChange={(value) =>
-                  updateField("brand_name", value)
-                }
-              />
-
-              <Field
-                label="Tagline"
-                value={settings.tagline}
-                onChange={(value) =>
-                  updateField("tagline", value)
-                }
-              />
-
-              <Field
-                label="Email"
-                type="email"
-                value={settings.email}
-                onChange={(value) =>
-                  updateField("email", value)
-                }
-              />
-
-              <Field
-                label="Phone"
-                value={settings.phone}
-                onChange={(value) =>
-                  updateField("phone", value)
-                }
-              />
-
-              <Field
-                label="WhatsApp"
-                value={settings.whatsapp}
-                onChange={(value) =>
-                  updateField("whatsapp", value)
-                }
-              />
-
-              <Field
-                label="Domain"
-                value={settings.domain}
-                onChange={(value) =>
-                  updateField("domain", value)
-                }
-              />
-
-              <div className="md:col-span-2">
-                <Field
-                  label="Business Address"
-                  value={settings.address}
-                  onChange={(value) =>
-                    updateField("address", value)
-                  }
-                />
-              </div>
+              {TEXT_FIELDS.map(([field, label, type]) => <Field key={field} label={label} type={type} value={settings[field] ?? ""} onChange={(value) => updateField(field, value)} />)}
             </div>
           </SettingsSection>
 
-          <SettingsSection
-            title="Social Media"
-            description="Your public social media links."
-          >
+          <SettingsSection title="Social links" description="Add the social accounts customers should find.">
             <div className="grid gap-5 md:grid-cols-2">
-              <Field
-                label="Instagram"
-                value={settings.instagram}
-                onChange={(value) =>
-                  updateField("instagram", value)
-                }
-              />
-
-              <Field
-                label="Facebook"
-                value={settings.facebook}
-                onChange={(value) =>
-                  updateField("facebook", value)
-                }
-              />
-
-              <Field
-                label="TikTok"
-                value={settings.tiktok}
-                onChange={(value) =>
-                  updateField("tiktok", value)
-                }
-              />
-
-              <Field
-                label="Snapchat"
-                value={settings.snapchat}
-                onChange={(value) =>
-                  updateField("snapchat", value)
-                }
-              />
+              {SOCIAL_FIELDS.map(([field, label]) => <Field key={field} label={label} value={settings[field] ?? ""} onChange={(value) => updateField(field, value)} />)}
             </div>
           </SettingsSection>
 
-          <SettingsSection
-            title="Payments"
-            description="Choose which checkout payment methods are available."
-          >
-            <div className="space-y-4">
-              <Toggle
-                label="Pay Online"
-                description="Allow customers to pay online."
-                checked={
-                  settings.pay_online_enabled
-                }
-                onChange={(value) =>
-                  updateField(
-                    "pay_online_enabled",
-                    value
-                  )
-                }
-              />
-
-              <Toggle
-                label="Pay on Delivery"
-                description="Allow customers to pay when their order arrives."
-                checked={
-                  settings.pay_on_delivery_enabled
-                }
-                onChange={(value) =>
-                  updateField(
-                    "pay_on_delivery_enabled",
-                    value
-                  )
-                }
-              />
-
-              <Toggle
-                label="Pay on Delivery — Accra Only"
-                description="Restrict Pay on Delivery to Greater Accra."
-                checked={
-                  settings.pay_on_delivery_accra_only
-                }
-                onChange={(value) =>
-                  updateField(
-                    "pay_on_delivery_accra_only",
-                    value
-                  )
-                }
-              />
+          <SettingsSection title="Dispatch and delivery" description="These values are used by the server when it calculates delivery distance and fees.">
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              <NumberField label="Hub latitude" value={settings.business_latitude} min="-90" max="90" step="any" onChange={(value) => updateField("business_latitude", value)} />
+              <NumberField label="Hub longitude" value={settings.business_longitude} min="-180" max="180" step="any" onChange={(value) => updateField("business_longitude", value)} />
+              <NumberField label="Delivery fee per unit (GHS)" value={settings.delivery_rate} min="0" step="0.01" onChange={(value) => updateField("delivery_rate", value)} />
+              <NumberField label="Distance unit (km)" value={settings.delivery_distance_unit} min="0.1" step="0.1" onChange={(value) => updateField("delivery_distance_unit", value)} />
+              <NumberField label="Distance multiplier" value={settings.distance_multiplier} min="0.1" step="0.01" onChange={(value) => updateField("distance_multiplier", value)} />
+              <NumberField label="Max delivery distance (km, optional)" value={settings.max_delivery_distance_km ?? ""} min="0.1" step="0.1" optional onChange={(value) => updateField("max_delivery_distance_km", value)} />
+              <NumberField label="Cash on delivery max distance (km, optional)" value={settings.cod_max_distance_km ?? ""} min="0" step="0.1" optional onChange={(value) => updateField("cod_max_distance_km", value)} />
+              <Toggle label="Cash on delivery in Accra only" description="Restrict cash on delivery to the Accra delivery area." checked={settings.cod_accra_only} onChange={(value) => updateField("cod_accra_only", value)} />
             </div>
           </SettingsSection>
 
-          <SettingsSection
-            title="Delivery"
-            description="Your distance-based delivery pricing."
-          >
-            <div className="grid gap-5 md:grid-cols-3">
-              <NumberField
-                label="Fee per Distance (GHS)"
-                value={
-                  settings.delivery_fee_amount
-                }
-                onChange={(value) =>
-                  updateField(
-                    "delivery_fee_amount",
-                    value
-                  )
-                }
-              />
-
-              <NumberField
-                label="Every Kilometres"
-                value={
-                  settings.delivery_distance_km
-                }
-                onChange={(value) =>
-                  updateField(
-                    "delivery_distance_km",
-                    value
-                  )
-                }
-              />
-
-              <NumberField
-                label="Minimum Delivery Fee (GHS)"
-                value={
-                  settings.minimum_delivery_fee
-                }
-                onChange={(value) =>
-                  updateField(
-                    "minimum_delivery_fee",
-                    value
-                  )
-                }
-              />
-            </div>
-
-            <div className="mt-5 rounded-xl bg-[#fff0f7] p-4 text-sm text-black/60">
-              <span className="font-semibold text-[#e60078]">
-                Current rule:
-              </span>{" "}
-              GH₵
-              {settings.delivery_fee_amount ||
-                10}{" "}
-              every{" "}
-              {settings.delivery_distance_km ||
-                7}{" "}
-              km, with a minimum delivery fee of GH₵
-              {settings.minimum_delivery_fee ||
-                10}.
+          <SettingsSection title="Checkout and inventory" description="Control payment options and stock reservation timing.">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Toggle label="Online payment" description="Allow customers to pay through Paystack." checked={settings.paystack_enabled} onChange={(value) => updateField("paystack_enabled", value)} />
+              <Toggle label="Cash on delivery" description="Allow customers to pay when their order arrives." checked={settings.cod_enabled} onChange={(value) => updateField("cod_enabled", value)} />
+              <NumberField label="Low stock alert threshold" value={settings.low_stock_default} min="0" step="1" onChange={(value) => updateField("low_stock_default", value)} />
+              <NumberField label="Online payment stock hold (minutes)" value={settings.paystack_hold_minutes} min="1" step="1" onChange={(value) => updateField("paystack_hold_minutes", value)} />
+              <NumberField label="Cash on delivery stock hold (minutes)" value={settings.cod_hold_minutes} min="1" step="1" onChange={(value) => updateField("cod_hold_minutes", value)} />
             </div>
           </SettingsSection>
 
-          <SettingsSection
-            title="Store Status"
-            description="Control whether the store is operating."
-          >
-            <div className="space-y-4">
-              <Toggle
-                label="Store Open"
-                description="Allow customers to place orders."
-                checked={settings.store_open}
-                onChange={(value) =>
-                  updateField(
-                    "store_open",
-                    value
-                  )
-                }
-              />
-
-              <Toggle
-                label="Maintenance Mode"
-                description="Temporarily disable normal shopping."
-                checked={
-                  settings.maintenance_mode
-                }
-                onChange={(value) =>
-                  updateField(
-                    "maintenance_mode",
-                    value
-                  )
-                }
-              />
+          <SettingsSection title="Store availability" description="Control whether checkout is currently open.">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Toggle label="Store open" description="Allow customers to place orders." checked={settings.store_open} onChange={(value) => updateField("store_open", value)} />
+              <Toggle label="Maintenance mode" description="Show a maintenance message and pause checkout." checked={settings.maintenance_mode} onChange={(value) => updateField("maintenance_mode", value)} />
             </div>
           </SettingsSection>
 
-          <div className="sticky bottom-4 z-20 flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#ff1f8f] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-pink-200 transition hover:bg-[#e60078] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4" />
-                  Save Changes
-                </>
-              )}
-            </button>
-          </div>
+          <div className="sticky bottom-4 z-20 flex justify-end"><button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-[#ff1f8f] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-pink-200 transition hover:bg-[#e60078] disabled:cursor-not-allowed disabled:opacity-60">{saving ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><Save className="h-4 w-4" />Save Changes</>}</button></div>
         </form>
       </main>
     </div>
   );
 }
 
-function SettingsSection({
-  title,
-  description,
-  children,
-}) {
-  return (
-    <section className="rounded-2xl border border-black/[0.07] bg-white p-6 shadow-sm sm:p-7">
-      <div className="mb-6">
-        <h2 className="font-heading text-xl font-bold">
-          {title}
-        </h2>
-
-        <p className="mt-1 text-sm text-black/45">
-          {description}
-        </p>
-      </div>
-
-      {children}
-    </section>
-  );
+function SettingsSection({ title, description, children }) {
+  return <section className="rounded-2xl border border-black/[0.07] bg-white p-6 shadow-sm sm:p-7"><div className="mb-6"><h2 className="font-heading text-xl font-bold">{title}</h2><p className="mt-1 text-sm text-black/45">{description}</p></div>{children}</section>;
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-semibold">
-        {label}
-      </span>
-
-      <input
-        type={type}
-        value={value ?? ""}
-        onChange={(event) =>
-          onChange(event.target.value)
-        }
-        className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#ff1f8f] focus:ring-2 focus:ring-[#ff1f8f]/10"
-      />
-    </label>
-  );
+function Field({ label, value, onChange, type = "text" }) {
+  return <label className="block text-sm font-medium text-black/70">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} maxLength={500} className="admin-input mt-2 w-full" /></label>;
 }
 
-function NumberField({
-  label,
-  value,
-  onChange,
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-semibold">
-        {label}
-      </span>
-
-      <input
-        type="number"
-        min="0"
-        step="0.01"
-        value={value ?? ""}
-        onChange={(event) =>
-          onChange(event.target.value)
-        }
-        className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#ff1f8f] focus:ring-2 focus:ring-[#ff1f8f]/10"
-      />
-    </label>
-  );
+function NumberField({ label, value, onChange, min = "0", max, step = "1", optional = false }) {
+  return <label className="block text-sm font-medium text-black/70">{label}<input type="number" value={value ?? ""} onChange={(event) => onChange(event.target.value)} min={min} max={max} step={step} required={!optional} className="admin-input mt-2 w-full" /></label>;
 }
 
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange,
-}) {
-  return (
-    <label className="flex cursor-pointer items-center justify-between gap-5 rounded-xl border border-black/[0.07] p-4 transition hover:bg-[#fff8fc]">
-      <div>
-        <p className="text-sm font-semibold">
-          {label}
-        </p>
+function Toggle({ label, description, checked, onChange }) {
+  return <label className="flex cursor-pointer items-start justify-between gap-5 rounded-xl border border-black/[0.07] p-4"><span><span className="block text-sm font-semibold">{label}</span><span className="mt-1 block text-xs leading-5 text-black/45">{description}</span></span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => onChange(event.target.checked)} className="mt-1 h-5 w-5 accent-[#ff1f8f]" /></label>;
+}
 
-        <p className="mt-1 text-xs text-black/45">
-          {description}
-        </p>
-      </div>
-
-      <input
-        type="checkbox"
-        checked={Boolean(checked)}
-        onChange={(event) =>
-          onChange(event.target.checked)
-        }
-        className="h-5 w-5 accent-[#ff1f8f]"
-      />
-    </label>
-  );
+function FullPageLoading() {
+  return <div className="flex min-h-screen items-center justify-center bg-[#fafafa]"><Loader2 className="h-8 w-8 animate-spin text-[#ff1f8f]" /></div>;
 }

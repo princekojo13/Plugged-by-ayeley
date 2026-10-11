@@ -201,7 +201,7 @@ export default function AdminReviews() {
         review.customer_name
           ?.toLowerCase()
           .includes(value) ||
-        review.review
+        review.review_text
           ?.toLowerCase()
           .includes(value) ||
         review.products?.name
@@ -466,7 +466,7 @@ function ReviewCard({
           </h2>
 
           <p className="mt-3 text-sm leading-7 text-black/60">
-            {review.review ||
+            {review.review_text ||
               "No review text provided."}
           </p>
 

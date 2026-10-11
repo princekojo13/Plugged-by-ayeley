@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -13,11 +13,88 @@ import {
 import { useCart } from "@/lib/cartContext";
 import { supabase } from "@/lib/supabaseClient";
 import { SITE_CONFIG } from "@/lib/siteConfig";
+import LeafletPinPicker from "@/components/LeafletPinPicker";
 
 const PAYMENT_METHODS = {
   PAYSTACK: "paystack",
   POD: "pay_on_delivery",
 };
+
+async function getCheckoutQuote(location, items) {
+  const productIds = [...new Set(items.map((item) => item.product_id))];
+  const [productsResult, settingsResult] = await Promise.all([
+    supabase
+      .from("products")
+      .select("id,price")
+      .in("id", productIds)
+      .eq("active", true),
+    supabase
+      .from("store_settings")
+      .select("max_delivery_distance_km")
+      .eq("id", true)
+      .maybeSingle(),
+  ]);
+
+  if (productsResult.error) throw productsResult.error;
+  if (settingsResult.error || !settingsResult.data) {
+    throw settingsResult.error || new Error("Delivery settings could not be loaded.");
+  }
+
+  const products = productsResult.data || [];
+  if (products.length !== productIds.length) {
+    throw new Error("One or more items are no longer available. Refresh your cart and try again.");
+  }
+
+  const pricesById = new Map(products.map((product) => [product.id, Number(product.price)]));
+  if ([...pricesById.values()].some((price) => !Number.isFinite(price) || price < 0)) {
+    throw new Error("Current product prices could not be loaded. Refresh your cart and try again.");
+  }
+
+  const subtotalValue = items.reduce(
+    (sum, item) => sum + (pricesById.get(item.product_id) || 0) * item.quantity,
+    0,
+  );
+  const subtotal = Math.round((subtotalValue + Number.EPSILON) * 100) / 100;
+
+  const { data: distance, error: distanceError } = await supabase.rpc("calculate_distance_km", {
+    p_latitude: location.lat,
+    p_longitude: location.lng,
+  });
+  if (distanceError || distance === null || distance === undefined || !Number.isFinite(Number(distance))) {
+    throw distanceError || new Error("Delivery distance could not be calculated. Try placing the pin again.");
+  }
+  const distanceKm = Number(distance);
+
+  const maxDistance = settingsResult.data.max_delivery_distance_km;
+  if (maxDistance !== null && maxDistance !== undefined && distanceKm > Number(maxDistance)) {
+    throw new Error("Sorry, this address is outside our delivery range.");
+  }
+
+  const { data: deliveryFee, error: feeError } = await supabase.rpc("calculate_delivery_fee", {
+    distance_km: distanceKm,
+  });
+  if (feeError || deliveryFee === null || deliveryFee === undefined || !Number.isFinite(Number(deliveryFee)) || Number(deliveryFee) < 0) {
+    throw feeError || new Error("Delivery fee could not be calculated. Try placing the pin again.");
+  }
+
+  const deliveryFeeValue = Number(deliveryFee);
+  return {
+    subtotal,
+    delivery_fee: deliveryFeeValue,
+    total: Math.round((subtotal + deliveryFeeValue + Number.EPSILON) * 100) / 100,
+    distance_km: distanceKm,
+    currency: "GHS",
+    items: items.map((item) => {
+      const unitPrice = pricesById.get(item.product_id) || 0;
+      return {
+        product_id: item.product_id,
+        quantity: item.quantity,
+        unit_price: unitPrice,
+        line_total: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100,
+      };
+    }),
+  };
+}
 
 export default function Checkout() {
   const navigate = useNavigate();
@@ -25,11 +102,40 @@ export default function Checkout() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [storeSettings, setStoreSettings] = useState(null);
+  const [settingsError, setSettingsError] = useState("");
   const [placedOrder, setPlacedOrder] = useState(null);
+  const [deliveryLocation, setDeliveryLocation] = useState(null);
+  const [deliveryQuote, setDeliveryQuote] = useState(null);
+  const [deliveryQuoteLoading, setDeliveryQuoteLoading] = useState(false);
+  const [deliveryQuoteError, setDeliveryQuoteError] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState(
     PAYMENT_METHODS.PAYSTACK
   );
+
+  useEffect(() => {
+    let active = true;
+    supabase
+      .from("store_settings")
+      .select("store_open,maintenance_mode,paystack_enabled,cod_enabled,cod_accra_only")
+      .eq("id", true)
+      .maybeSingle()
+      .then(({ data, error: loadError }) => {
+        if (!active) return;
+        if (loadError || !data) {
+          setSettingsError("Checkout settings could not be loaded. Please refresh and try again.");
+          return;
+        }
+        setStoreSettings(data);
+        if (!data.paystack_enabled && data.cod_enabled) {
+          setPaymentMethod(PAYMENT_METHODS.POD);
+        } else if (data.paystack_enabled) {
+          setPaymentMethod(PAYMENT_METHODS.PAYSTACK);
+        }
+      });
+    return () => { active = false; };
+  }, []);
 
   const [form, setForm] = useState({
     full_name: "",
@@ -45,6 +151,8 @@ export default function Checkout() {
 
   const isAccra =
     form.delivery_region === "Greater Accra";
+  const codRegionAllowed = !storeSettings?.cod_accra_only || isAccra;
+  const storeClosed = Boolean(storeSettings && (!storeSettings.store_open || storeSettings.maintenance_mode));
 
   const setField = (field, value) => {
     setForm((current) => ({
@@ -56,12 +164,8 @@ export default function Checkout() {
   };
 
   const handlePaymentChange = (method) => {
-    if (
-      method === PAYMENT_METHODS.POD &&
-      !isAccra
-    ) {
-      return;
-    }
+    if (method === PAYMENT_METHODS.PAYSTACK && !storeSettings?.paystack_enabled) return;
+    if (method === PAYMENT_METHODS.POD && (!storeSettings?.cod_enabled || !codRegionAllowed)) return;
 
     setPaymentMethod(method);
     setError("");
@@ -73,7 +177,7 @@ export default function Checkout() {
       delivery_region: value,
     }));
 
-    if (value !== "Greater Accra") {
+    if (value !== "Greater Accra" && storeSettings?.cod_accra_only) {
       setPaymentMethod(PAYMENT_METHODS.PAYSTACK);
     }
 
@@ -90,6 +194,44 @@ export default function Checkout() {
     );
   }, [items]);
 
+  const quoteItems = useMemo(
+    () => items.map((item) => ({
+      product_id: item.product_id,
+      quantity: Number(item.quantity),
+    })),
+    [items],
+  );
+
+  useEffect(() => {
+    if (!deliveryLocation || quoteItems.length === 0) {
+      setDeliveryQuote(null);
+      setDeliveryQuoteLoading(false);
+      setDeliveryQuoteError("");
+      return undefined;
+    }
+
+    let active = true;
+    setDeliveryQuote(null);
+    setDeliveryQuoteError("");
+    setDeliveryQuoteLoading(true);
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const quote = await getCheckoutQuote(deliveryLocation, quoteItems);
+        if (active) setDeliveryQuote(quote);
+      } catch (quoteError) {
+        if (active) setDeliveryQuoteError(quoteError.message || "We couldn't calculate your order total.");
+      } finally {
+        if (active) setDeliveryQuoteLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [deliveryLocation, quoteItems]);
+
   const validateForm = () => {
     if (items.length === 0) {
       return "Your cart is empty.";
@@ -103,26 +245,19 @@ export default function Checkout() {
       return "Your name is too long.";
     }
 
-    if (form.phone.trim().length < 7) {
+    const phoneDigits = form.phone.replace(/\D/g, "");
+
+    if (phoneDigits.length < 9 || phoneDigits.length > 15) {
       return "Please enter a valid phone number.";
     }
 
-    if (form.phone.trim().length > 30) {
-      return "Please enter a valid phone number.";
+    if (!form.email.trim()) {
+      return "Please enter your email address.";
     }
 
     if (
-      paymentMethod ===
-        PAYMENT_METHODS.PAYSTACK &&
-      !form.email.trim()
-    ) {
-      return "Email is required when paying online.";
-    }
-
-    if (
-      paymentMethod ===
-        PAYMENT_METHODS.PAYSTACK &&
-      form.email.trim().length > 254
+      form.email.trim().length > 254 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
     ) {
       return "Please enter a valid email address.";
     }
@@ -133,9 +268,13 @@ export default function Checkout() {
       return "Please enter your delivery address.";
     }
 
-    if (
-      form.delivery_address.trim().length > 1000
-    ) {
+    const combinedAddressLength =
+      form.delivery_address.trim().length +
+      (form.digital_address.trim()
+        ? 17 + form.digital_address.trim().length
+        : 0);
+
+    if (combinedAddressLength > 500) {
       return "Your delivery address is too long.";
     }
 
@@ -154,19 +293,30 @@ export default function Checkout() {
     if (
       paymentMethod ===
         PAYMENT_METHODS.POD &&
-      !isAccra
+      !codRegionAllowed
     ) {
       return (
         "Pay on Delivery is only available within Greater Accra."
       );
     }
 
-    if (
-      paymentMethod ===
-        PAYMENT_METHODS.POD &&
-      form.momo_number.trim().length < 7
-    ) {
-      return "Please enter your Mobile Money number.";
+    if (paymentMethod === PAYMENT_METHODS.PAYSTACK && !storeSettings?.paystack_enabled) {
+      return "Online payment is currently unavailable.";
+    }
+    if (paymentMethod === PAYMENT_METHODS.POD && !storeSettings?.cod_enabled) {
+      return "Pay on Delivery is currently unavailable.";
+    }
+
+    if (paymentMethod === PAYMENT_METHODS.POD) {
+      const momoDigits = form.momo_number.replace(/\D/g, "");
+      if (
+        momoDigits.length < 9 ||
+        momoDigits.length > 15 ||
+        form.momo_number.trim().length > 30 ||
+        !/^[+0-9()\s-]+$/.test(form.momo_number.trim())
+      ) {
+        return "Please enter a valid Mobile Money number.";
+      }
     }
 
     if (
@@ -177,8 +327,18 @@ export default function Checkout() {
       return "Please select your Mobile Money network.";
     }
 
+    if (!deliveryLocation) {
+      return "Select your delivery location on the map.";
+    }
+
+    if (!deliveryQuote) {
+      return deliveryQuoteError || "Please wait while we calculate your delivery fee and total.";
+    }
+
     return "";
   };
+
+  const checkoutValidationError = validateForm();
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -188,6 +348,15 @@ export default function Checkout() {
     }
 
     setError("");
+
+    if (settingsError || !storeSettings) {
+      setError(settingsError || "Checkout settings are still loading.");
+      return;
+    }
+    if (storeClosed) {
+      setError("The store is currently closed and cannot accept orders.");
+      return;
+    }
 
     const validationError = validateForm();
 
@@ -259,6 +428,9 @@ export default function Checkout() {
               payment_method:
                 paymentMethod,
 
+              delivery_lat: deliveryLocation.lat,
+              delivery_lng: deliveryLocation.lng,
+
               momo_number:
                 paymentMethod ===
                 PAYMENT_METHODS.POD
@@ -277,10 +449,18 @@ export default function Checkout() {
         );
 
       if (functionError) {
-        throw new Error(
-          functionError.message ||
-            "We could not place your order."
-        );
+        let message = functionError.message || "We could not place your order.";
+
+        if (functionError.context instanceof Response) {
+          try {
+            const responseBody = await functionError.context.clone().json();
+            if (responseBody?.error) message = responseBody.error;
+          } catch {
+            // Keep the Functions client error when there is no JSON response body.
+          }
+        }
+
+        throw new Error(message);
       }
 
       if (!data?.success) {
@@ -321,13 +501,6 @@ export default function Checkout() {
         "pba_last_order_number",
         data.order.order_number
       );
-
-      if (data.order.tracking_token) {
-        localStorage.setItem(
-          "pba_last_tracking_token",
-          data.order.tracking_token
-        );
-      }
 
       if (form.email.trim()) {
         localStorage.setItem(
@@ -428,25 +601,14 @@ export default function Checkout() {
           </div>
 
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
-            {placedOrder.tracking_token ? (
-              <Link
-                to={`/track-order?token=${encodeURIComponent(
-                  placedOrder.tracking_token
-                )}`}
-                className="px-7 py-3 bg-pink text-white font-bold uppercase tracking-wider text-sm hover:bg-carbon transition-colors"
-              >
-                Track My Order
-              </Link>
-            ) : (
-              <Link
-                to={`/track-order?order=${encodeURIComponent(
-                  placedOrder.order_number
-                )}`}
-                className="px-7 py-3 bg-pink text-white font-bold uppercase tracking-wider text-sm hover:bg-carbon transition-colors"
-              >
-                Track My Order
-              </Link>
-            )}
+            <Link
+              to={`/track-order?order=${encodeURIComponent(
+                placedOrder.order_number
+              )}`}
+              className="px-7 py-3 bg-pink text-white font-bold uppercase tracking-wider text-sm hover:bg-carbon transition-colors"
+            >
+              Track My Order
+            </Link>
 
             <Link
               to="/shop"
@@ -497,9 +659,9 @@ export default function Checkout() {
 
       <form
         onSubmit={handleSubmit}
-        className="grid lg:grid-cols-3 gap-8"
+        className="grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-3"
       >
-        <div className="lg:col-span-2 space-y-8">
+        <div className="min-w-0 space-y-8 lg:col-span-2">
           {/* CONTACT */}
           <section className="border border-border bg-white p-6">
             <SectionTitle
@@ -510,9 +672,11 @@ export default function Checkout() {
             <div className="grid sm:grid-cols-2 gap-4">
               <Field
                 label="Full Name"
+                id="checkout-full-name"
                 required
               >
                 <input
+                  id="checkout-full-name"
                   required
                   maxLength={100}
                   value={form.full_name}
@@ -530,9 +694,11 @@ export default function Checkout() {
 
               <Field
                 label="Phone Number"
+                id="checkout-phone-number"
                 required
               >
                 <input
+                  id="checkout-phone-number"
                   required
                   type="tel"
                   maxLength={30}
@@ -551,13 +717,13 @@ export default function Checkout() {
 
               <Field
                 label="Email"
+                id="checkout-email"
                 className="sm:col-span-2"
-                required={
-                  paymentMethod ===
-                  PAYMENT_METHODS.PAYSTACK
-                }
+                required
               >
                 <input
+                  id="checkout-email"
+                  required
                   type="email"
                   maxLength={254}
                   value={form.email}
@@ -585,9 +751,11 @@ export default function Checkout() {
             <div className="space-y-4">
               <Field
                 label="Delivery Region"
+                id="checkout-delivery-region"
                 required
               >
                 <select
+                  id="checkout-delivery-region"
                   required
                   value={
                     form.delivery_region
@@ -614,12 +782,14 @@ export default function Checkout() {
 
               <Field
                 label="Delivery Address"
+                id="checkout-delivery-address"
                 required
               >
                 <textarea
+                  id="checkout-delivery-address"
                   required
                   rows={4}
-                  maxLength={1000}
+                  maxLength={500}
                   value={
                     form.delivery_address
                   }
@@ -635,8 +805,44 @@ export default function Checkout() {
                 />
               </Field>
 
-              <Field label="GhanaPost GPS Address">
+              <Field
+                label="Delivery Location"
+                id="checkout-delivery-location"
+                labelAsSpan
+                required
+              >
+                <div
+                  role="group"
+                  aria-labelledby="checkout-delivery-location-label"
+                  aria-describedby="checkout-delivery-location-help checkout-delivery-location-status"
+                >
+                  <p id="checkout-delivery-location-help" className="mb-2 text-sm text-muted-foreground">
+                    Click or tap the map to place a pin, then drag it to your delivery point. The location is used to calculate delivery distance.
+                  </p>
+                  <div className="overflow-hidden border border-border">
+                    <LeafletPinPicker
+                      location={deliveryLocation}
+                      onSelect={setDeliveryLocation}
+                    />
+                  </div>
+                  <p id="checkout-delivery-location-status" className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+                    {deliveryLocation
+                      ? `Location selected: ${deliveryLocation.lat.toFixed(5)}, ${deliveryLocation.lng.toFixed(5)}`
+                      : "No location selected yet."}
+                  </p>
+              <p className="mt-2 text-sm font-medium text-carbon" role="status" aria-live="polite">
+                {deliveryQuoteLoading
+                  ? "Calculating delivery fee…"
+                  : deliveryQuote
+                    ? `Delivery fee: ₵${Number(deliveryQuote.delivery_fee).toFixed(2)} (${Number(deliveryQuote.distance_km).toFixed(2)} km)`
+                    : deliveryQuoteError || "Choose a location pin to see your delivery fee."}
+              </p>
+                </div>
+              </Field>
+
+              <Field label="GhanaPost GPS Address" id="checkout-digital-address">
                 <input
+                  id="checkout-digital-address"
                   maxLength={100}
                   value={
                     form.digital_address
@@ -652,8 +858,9 @@ export default function Checkout() {
                 />
               </Field>
 
-              <Field label="Order Note">
+              <Field label="Order Note" id="checkout-order-note">
                 <textarea
+                  id="checkout-order-note"
                   rows={3}
                   maxLength={2000}
                   value={form.order_note}
@@ -689,8 +896,12 @@ export default function Checkout() {
               title="Payment Method"
             />
 
+            {storeClosed && <p role="alert" className="mb-4 border border-red-200 bg-red-50 p-4 text-sm text-red-700">The store is closed and cannot accept orders right now.</p>}
+            {settingsError && <p role="alert" className="mb-4 border border-red-200 bg-red-50 p-4 text-sm text-red-700">{settingsError}</p>}
+            {!storeSettings && !settingsError && <p className="mb-4 text-sm text-muted-foreground">Loading checkout options…</p>}
+
             <div className="space-y-4">
-              <button
+              {storeSettings?.paystack_enabled && <button
                 type="button"
                 onClick={() =>
                   handlePaymentChange(
@@ -732,12 +943,12 @@ export default function Checkout() {
                     </p>
                   </div>
                 </div>
-              </button>
+              </button>}
 
-              <button
+              {storeSettings?.cod_enabled && <button
                 type="button"
                 disabled={
-                  submitting || !isAccra
+                  submitting || !codRegionAllowed
                 }
                 onClick={() =>
                   handlePaymentChange(
@@ -745,7 +956,7 @@ export default function Checkout() {
                   )
                 }
                 className={`w-full text-left border-2 p-5 transition-colors ${
-                  !isAccra
+                  !codRegionAllowed
                     ? "border-border bg-gray-50 opacity-60 cursor-not-allowed"
                     : paymentMethod ===
                         PAYMENT_METHODS.POD
@@ -776,10 +987,10 @@ export default function Checkout() {
                     </p>
 
                     <p className="text-sm text-muted-foreground mt-1">
-                      Available only within Greater Accra.
+                      {storeSettings?.cod_accra_only ? "Available only within Greater Accra." : "Available for your delivery area."}
                     </p>
 
-                    {!isAccra && (
+                    {!codRegionAllowed && (
                       <p className="text-xs text-red-600 mt-2">
                         Select Greater Accra to use Pay on
                         Delivery.
@@ -787,19 +998,24 @@ export default function Checkout() {
                     )}
                   </div>
                 </div>
-              </button>
+              </button>}
+              {storeSettings && !storeSettings.paystack_enabled && !storeSettings.cod_enabled && (
+                <p role="alert" className="border border-red-200 bg-red-50 p-4 text-sm text-red-700">Orders are temporarily unavailable because no payment methods are enabled.</p>
+              )}
             </div>
 
             {paymentMethod ===
               PAYMENT_METHODS.POD &&
-              isAccra && (
+              codRegionAllowed && (
                 <div className="mt-5 grid sm:grid-cols-2 gap-4">
                   <Field
                     label="MoMo Number"
+                    id="checkout-momo-number"
                     required
                   >
-                    <input
-                      required
+                <input
+                  id="checkout-momo-number"
+                  required
                       type="tel"
                       maxLength={30}
                       value={
@@ -819,9 +1035,11 @@ export default function Checkout() {
 
                   <Field
                     label="MoMo Network"
+                    id="checkout-momo-network"
                     required
                   >
                     <select
+                      id="checkout-momo-network"
                       required
                       value={
                         form.momo_network
@@ -853,7 +1071,7 @@ export default function Checkout() {
         </div>
 
         {/* ORDER SUMMARY */}
-        <aside>
+        <aside className="min-w-0">
           <div className="sticky top-28 border border-border bg-london/30 p-6">
             <h2 className="font-heading text-xl font-bold text-carbon">
               Your Order
@@ -886,10 +1104,9 @@ export default function Checkout() {
                   </div>
 
                   <p className="font-semibold text-sm text-carbon">
-                    ₵
-                    {(
-                      Number(item.price || 0) *
-                      Number(item.quantity || 0)
+                    ₵{Number(
+                      deliveryQuote?.items?.find((quotedItem) => quotedItem.product_id === item.product_id)?.line_total ??
+                        Number(item.price || 0) * Number(item.quantity || 0)
                     ).toFixed(2)}
                   </p>
                 </div>
@@ -904,11 +1121,7 @@ export default function Checkout() {
 
                 <span className="font-semibold">
                   ₵
-                  {Number(
-                    localSubtotal ||
-                    subtotal ||
-                    0
-                  ).toFixed(2)}
+                  {Number(deliveryQuote?.subtotal ?? localSubtotal ?? subtotal ?? 0).toFixed(2)}
                 </span>
               </div>
 
@@ -918,7 +1131,11 @@ export default function Checkout() {
                 </span>
 
                 <span className="font-semibold text-pink">
-                  Calculated securely
+                  {deliveryQuoteLoading
+                    ? "Calculating…"
+                    : deliveryQuote
+                      ? `₵${Number(deliveryQuote.delivery_fee).toFixed(2)}`
+                      : "Choose a location"}
                 </span>
               </div>
             </div>
@@ -930,16 +1147,24 @@ export default function Checkout() {
                 </span>
 
                 <span className="font-heading font-bold text-xl text-pink">
-                  Calculated at checkout
+                  {deliveryQuoteLoading
+                    ? "Calculating…"
+                    : deliveryQuote
+                      ? `₵${Number(deliveryQuote.total).toFixed(2)}`
+                      : "—"}
                 </span>
               </div>
 
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                Final total is calculated and validated
-                on the server using current product prices
-                and the delivery calculation.
+                The quote uses current product prices and your selected delivery distance. The final order is checked again when you place it.
               </p>
             </div>
+
+            {deliveryQuoteError && (
+              <p role="alert" className="mt-3 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                {deliveryQuoteError}
+              </p>
+            )}
 
             {error && (
               <div className="mt-5 flex items-start gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -950,7 +1175,7 @@ export default function Checkout() {
 
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || Boolean(checkoutValidationError) || deliveryQuoteLoading || !deliveryQuote || !storeSettings || Boolean(settingsError) || storeClosed || (!storeSettings?.paystack_enabled && !storeSettings?.cod_enabled)}
               className="w-full mt-6 py-4 bg-pink text-white font-bold uppercase tracking-wider text-sm hover:bg-carbon transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {submitting ? (
@@ -998,15 +1223,24 @@ function SectionTitle({ number, title }) {
 function Field({
   label,
   children,
+  id,
+  labelAsSpan = false,
   className = "",
   required = false,
 }) {
+  const Label = labelAsSpan ? "span" : "label";
+
   return (
     <div className={className}>
-      <label className="block text-xs uppercase tracking-wider font-semibold text-carbon mb-1.5">
+      <Label
+        {...(labelAsSpan
+          ? { id: `${id}-label` }
+          : { htmlFor: id })}
+        className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon"
+      >
         {label}
-        {required && " *"}
-      </label>
+        {required && <span aria-hidden="true"> *</span>}
+      </Label>
 
       {children}
     </div>

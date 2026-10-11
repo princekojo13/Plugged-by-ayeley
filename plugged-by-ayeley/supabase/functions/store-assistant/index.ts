@@ -7,6 +7,7 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:5174",
   "https://pluggedbyayeley.com",
   "https://www.pluggedbyayeley.com",
+  "https://plugged-by-ayeley.onrender.com",
 ]);
 
 const MAX_MESSAGES = 8;
@@ -123,14 +124,14 @@ Deno.serve(async (req) => {
     const [{ data: products, error: productsError }, { data: settings }] = await Promise.all([
       supabaseAdmin
         .from("products")
-        .select("id,name,slug,description,category,price,compare_at_price,available_stock,featured,best_seller,new_arrival,special_offer,active")
+        .select("id,name,slug,description,category,price,compare_at_price,available_stock:stock_quantity,featured,best_seller,new_arrival,special_offer,active")
         .eq("active", true)
         .order("created_at", { ascending: false })
         .limit(100),
       supabaseAdmin
         .from("store_settings")
-        .select("brand_name,tagline,email,phone,whatsapp,store_open,maintenance_mode,pay_online_enabled,pay_on_delivery_enabled,pay_on_delivery_accra_only,delivery_fee_amount,delivery_distance_km,minimum_delivery_fee")
-        .eq("id", 1)
+        .select("brand_name:store_name,tagline,email,phone,whatsapp,store_open,maintenance_mode,pay_online_enabled:paystack_enabled,pay_on_delivery_enabled:cod_enabled,pay_on_delivery_accra_only:cod_accra_only,delivery_fee_amount:delivery_rate,delivery_distance_km:delivery_distance_unit")
+        .eq("id", true)
         .maybeSingle(),
     ]);
 
@@ -147,7 +148,6 @@ Deno.serve(async (req) => {
     const storeName = settings?.brand_name || "Plugged by Ayeley";
     const deliveryDistance = Number(settings?.delivery_distance_km ?? 7);
     const deliveryFee = Number(settings?.delivery_fee_amount ?? 10);
-    const minimumDeliveryFee = Number(settings?.minimum_delivery_fee ?? 10);
     const payOnline = settings?.pay_online_enabled ?? true;
     const payOnDelivery = settings?.pay_on_delivery_enabled ?? true;
     const podAccraOnly = settings?.pay_on_delivery_accra_only ?? true;
@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
     }
 
     if (isQuestion(query, ["delivery", "shipping", "deliver", "distance", "fee"])) {
-      const feeText = `Delivery starts at ${money(minimumDeliveryFee)}. The configured base rule is ${money(deliveryFee)} per ${deliveryDistance} km, and the final fee is calculated securely at checkout from the selected delivery location.`;
+      const feeText = `The configured delivery rule is ${money(deliveryFee)} per ${deliveryDistance} km, and the final fee is calculated securely at checkout from the selected delivery location.`;
       const podText = payOnDelivery && podAccraOnly
         ? " Pay on Delivery is available within Greater Accra when enabled."
         : "";

@@ -10,14 +10,14 @@ import { cn } from "@/lib/utils";
 
 export default function ProductDetail() {
   const { id } = useParams();
-  const { data: product, isLoading } = useProduct(id);
+  const { product, loading: isLoading } = useProduct(id);
   const { addToCart } = useCart();
   const navigate = useNavigate();
   const [quantity, setQuantity] = useState(1);
   const [activeImage, setActiveImage] = useState(0);
   const [added, setAdded] = useState(false);
 
-  const { data: related } = useProducts({ category: product?.category, limit: 5 });
+  const { products: related = [] } = useProducts({ category: product?.category, limit: 5 });
 
   if (isLoading) {
     return (
@@ -43,8 +43,9 @@ export default function ProductDetail() {
     );
   }
 
-  const onSale = product.sale_price && product.sale_price < product.price;
-  const effectivePrice = product.sale_price || product.price;
+  const compareAtPrice = Number(product.compare_at_price);
+  const effectivePrice = Number(product.price);
+  const onSale = Number.isFinite(compareAtPrice) && compareAtPrice > effectivePrice;
   const inStock = product.stock > 0;
   const images = product.images?.length ? product.images : [];
 
@@ -90,11 +91,7 @@ export default function ProductDetail() {
           {/* Images */}
           <div>
             <div className="relative aspect-square bg-london overflow-hidden mb-4">
-              {images.length > 0 ? (
-                <Image src={images[activeImage]} alt={product.name} className="w-full h-full object-cover" fittingType="fill" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground">No image</div>
-              )}
+              <Image src={images[activeImage]} alt={product.name} className="w-full h-full object-cover" fittingType="fill" />
               {onSale && (
                 <span className="absolute top-4 left-4 bg-pink text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5">Sale</span>
               )}
@@ -121,7 +118,7 @@ export default function ProductDetail() {
 
             <div className="flex items-baseline gap-3 mb-6">
               <span className="font-heading text-3xl font-bold text-carbon">₵{effectivePrice.toFixed(2)}</span>
-              {onSale && <span className="text-xl text-muted-foreground line-through">₵{product.price.toFixed(2)}</span>}
+              {onSale && <span className="text-xl text-muted-foreground line-through">₵{compareAtPrice.toFixed(2)}</span>}
             </div>
 
             {/* Authenticity block */}

@@ -10,36 +10,60 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import OrderTrackMap from "@/components/OrderTrackMap";
 import { cn } from "@/lib/utils";
+
+const PBA_ORDER_NUMBER = /^PBA-(?:[A-F0-9]{5}-[A-F0-9]{5}|[A-F0-9]{8}-[A-F0-9]{8})$/;
 
 const STATUS_STEPS = [
   { key: "pending", label: "Order Placed", icon: Clock },
   { key: "confirmed", label: "Confirmed", icon: Check },
-  { key: "shipped", label: "Shipped", icon: Package },
+  { key: "processing", label: "Processing", icon: Package },
+  { key: "preparing", label: "Preparing", icon: Package },
+  { key: "out_for_delivery", label: "Out for delivery", icon: Truck },
   { key: "delivered", label: "Delivered", icon: Truck },
 ];
 
-function money(value) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
+const STATUS_STEP_INDEX = {
+  pending: 0,
+  confirmed: 1,
+  processing: 2,
+  preparing: 3,
+  shipped: 4,
+  out_for_delivery: 4,
+  delivered: 5,
+};
+
+function formatDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleString("en-GH", { dateStyle: "medium", timeStyle: "short" });
 }
 
 export default function TrackOrder() {
   const [params] = useSearchParams();
+  const orderParam = params.get("order") || "";
+  const customerSessionLink = Boolean(orderParam);
 
   const [trackingValue, setTrackingValue] = useState(
-    () => params.get("order") || ""
+    () => orderParam
   );
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const runTrack = async (value) => {
-    const query = value.trim();
+  useEffect(() => {
+    setTrackingValue(orderParam);
+    setOrder(null);
+    setError("");
+  }, [orderParam]);
 
-    if (!query) {
-      setError("Please enter your Order Number or tracking token.");
+  const runTrack = async (value) => {
+    const query = value.trim().toUpperCase();
+
+    if (!PBA_ORDER_NUMBER.test(query)) {
+      setError("Enter the PBA order number shown in your confirmation.");
       return;
     }
 
@@ -52,23 +76,35 @@ export default function TrackOrder() {
         await supabase.functions.invoke("track-order", {
           body: {
             order_number: query,
+            ...(customerSessionLink ? { authenticated_customer: true } : {}),
           },
         });
 
       if (functionError) {
-        throw functionError;
+        let serverMessage = "";
+        const response = functionError.context;
+        if (response && typeof response.json === "function") {
+          try {
+            const body = await response.clone().json();
+            serverMessage = body?.error || "";
+          } catch {
+            // Use the SDK error message when the function response isn't JSON.
+          }
+        }
+        throw new Error(serverMessage || functionError.message);
       }
 
-      if (!data?.order) {
-        throw new Error("Order not found");
+      if (!data?.success || !data?.order) {
+        throw new Error(data?.error || "Order not found");
       }
 
-      setOrder(data.order);
+      setOrder({
+        ...data.order,
+        status: data.order.order_status || data.order.status,
+      });
     } catch (err) {
       console.error("Order tracking error:", err);
-      setError(
-        "Order not found. Please check your Order Number and try again."
-      );
+      setError(err?.message || "We couldn't find an order with that PBA order number.");
     } finally {
       setLoading(false);
     }
@@ -79,18 +115,8 @@ export default function TrackOrder() {
     await runTrack(trackingValue);
   };
 
-  useEffect(() => {
-    const initialOrder = params.get("order");
-
-    if (initialOrder) {
-      runTrack(initialOrder);
-    }
-    // Run once for URL-based tracking.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const currentStepIndex = order
-    ? STATUS_STEPS.findIndex((step) => step.key === order.status)
+    ? STATUS_STEP_INDEX[order.status] ?? -1
     : -1;
 
   const isCancelled = order?.status === "cancelled";
@@ -108,22 +134,37 @@ export default function TrackOrder() {
           </h1>
 
           <p className="text-white/60 text-sm">
-            Enter your Order Number to check your delivery status.
+            {customerSessionLink
+              ? "Your PBA order number is ready. Press Enter or Track to view its latest status."
+              : "Enter the PBA order number from your confirmation to view its latest status."}
           </p>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-10">
-        <form onSubmit={handleTrack} className="flex gap-3 mb-8">
+        <form onSubmit={handleTrack} className="mb-8 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="relative flex-1">
+            <label htmlFor="tracking-order-number" className="sr-only">
+              PBA order number
+            </label>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
 
             <input
+              id="tracking-order-number"
+              name="order_number"
               type="text"
+              maxLength={21}
               value={trackingValue}
-              onChange={(event) => setTrackingValue(event.target.value)}
-              placeholder="Enter your Order Number"
+              onChange={(event) => {
+                setTrackingValue(event.target.value.toUpperCase());
+                setOrder(null);
+                setError("");
+              }}
+              placeholder="PBA-1A2B3-4C5D6"
               autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              required
               className="w-full pl-10 pr-4 py-3 bg-white border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink"
             />
           </div>
@@ -133,7 +174,7 @@ export default function TrackOrder() {
             disabled={loading}
             className="px-6 py-3 bg-carbon text-white font-bold uppercase tracking-wider text-sm hover:bg-pink transition-colors disabled:opacity-50"
           >
-            {loading ? "..." : "Track"}
+            {loading ? "Checking…" : order ? "Refresh Status" : "Track"}
           </button>
         </form>
 
@@ -157,15 +198,6 @@ export default function TrackOrder() {
                   </p>
                 </div>
 
-                <div className="text-right">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Total
-                  </p>
-
-                  <p className="font-heading font-bold text-lg text-carbon">
-                    ₵{money(order.total)}
-                  </p>
-                </div>
               </div>
 
               {isCancelled ? (
@@ -238,74 +270,6 @@ export default function TrackOrder() {
               )}
             </div>
 
-            <OrderTrackMap order={order} />
-
-            {Array.isArray(order.items) && order.items.length > 0 && (
-              <div className="border border-border p-6">
-                <h3 className="font-heading font-bold text-carbon mb-4">
-                  Order Details
-                </h3>
-
-                <div className="space-y-3 mb-4">
-                  {order.items.map((item, index) => (
-                    <div
-                      key={item.id || index}
-                      className="flex items-center gap-3"
-                    >
-                      <div className="w-12 h-12 bg-london rounded overflow-hidden shrink-0 flex items-center justify-center">
-                        <Package className="w-5 h-5 text-muted-foreground" />
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-carbon truncate">
-                          {item.product_name || item.name || "Product"}
-                        </p>
-
-                        <p className="text-xs text-muted-foreground">
-                          Qty: {item.quantity || 0}
-                        </p>
-                      </div>
-
-                      <p className="text-sm font-semibold text-carbon">
-                        ₵
-                        {money(
-                          Number(item.unit_price || item.price || 0) *
-                            Number(item.quantity || 0)
-                        )}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="border-t border-border pt-4 space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Subtotal
-                    </span>
-
-                    <span className="font-medium">
-                      ₵{money(order.subtotal)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Delivery Fee
-                    </span>
-
-                    <span className="font-medium">
-                      ₵{money(order.delivery_fee)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between font-bold text-carbon pt-1.5">
-                    <span>Total</span>
-                    <span>₵{money(order.total)}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div className="border border-border p-6">
               <h3 className="font-heading font-bold text-carbon mb-4">
                 Delivery Information
@@ -319,30 +283,6 @@ export default function TrackOrder() {
                     </span>{" "}
                     <span className="font-medium text-carbon">
                       {order.delivery_region}
-                    </span>
-                  </p>
-                )}
-
-                {order.delivery_address && (
-                  <p>
-                    <span className="text-muted-foreground">
-                      Address:
-                    </span>{" "}
-                    <span className="font-medium text-carbon">
-                      {order.delivery_address}
-                    </span>
-                  </p>
-                )}
-
-                {order.payment_method && (
-                  <p>
-                    <span className="text-muted-foreground">
-                      Payment:
-                    </span>{" "}
-                    <span className="font-medium text-carbon">
-                      {order.payment_method === "paystack"
-                        ? "Paid Online"
-                        : "Pay on Delivery"}
                     </span>
                   </p>
                 )}
@@ -366,11 +306,13 @@ export default function TrackOrder() {
             <Package className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
 
             <p className="text-muted-foreground">
-              Enter your Order Number above to track your shipment.
+              {customerSessionLink
+                ? "Press Enter to view the order connected to your My Orders link."
+                : "Enter your PBA order number to track your shipment."}
             </p>
 
             <p className="text-xs text-muted-foreground/60 mt-2">
-              Your Order Number is shown in your order confirmation.
+              Your PBA order number is shown in your order confirmation.
             </p>
           </div>
         )}

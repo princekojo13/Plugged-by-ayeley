@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -14,13 +14,13 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 
 const STATUSES = [
-  "Pending",
-  "Confirmed",
-  "Processing",
-  "Shipped",
-  "Out for delivery",
-  "Delivered",
-  "Cancelled",
+  { value: "pending", label: "Pending" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "processing", label: "Processing" },
+  { value: "preparing", label: "Preparing" },
+  { value: "out_for_delivery", label: "Out for delivery" },
+  { value: "delivered", label: "Delivered" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 function formatGhs(value) {
@@ -42,21 +42,24 @@ function formatDate(value) {
 
 function statusClass(status) {
   switch (status) {
-    case "Delivered":
+    case "delivered":
       return "bg-emerald-50 text-emerald-700";
-    case "Cancelled":
+    case "cancelled":
       return "bg-red-50 text-red-700";
-    case "Out for delivery":
+    case "out_for_delivery":
       return "bg-purple-50 text-purple-700";
-    case "Shipped":
-      return "bg-blue-50 text-blue-700";
-    case "Processing":
+    case "processing":
+    case "preparing":
       return "bg-cyan-50 text-cyan-700";
-    case "Confirmed":
+    case "confirmed":
       return "bg-amber-50 text-amber-700";
     default:
       return "bg-[#fff0f7] text-[#e60078]";
   }
+}
+
+function statusLabel(status) {
+  return STATUSES.find((item) => item.value === status)?.label || "Pending";
 }
 
 function paymentClass(status) {
@@ -119,30 +122,31 @@ export default function AdminOrders() {
         .select(`
           id,
           order_number,
-          full_name,
-          email,
-          phone,
+          full_name:customer_name,
+          email:customer_email,
+          phone:customer_phone,
           delivery_address,
-          city,
+          city:delivery_region,
           delivery_region,
           delivery_fee,
           subtotal,
           total,
           payment_method,
-          payment_status,
-          payment_reference,
-          status,
-          order_note,
           momo_number,
           momo_network,
-          tracking_token,
+          payment_status,
+          paid_at,
+          payment_reference:paystack_reference,
+          status:order_status,
+          order_note:delivery_instructions,
+          whatsapp_number,
           created_at,
           updated_at,
           order_items (
             id,
             product_id,
-            product_name,
-            unit_price,
+            product_name:product_name_snapshot,
+            unit_price:product_price_snapshot,
             quantity,
             line_total,
             created_at
@@ -177,6 +181,16 @@ export default function AdminOrders() {
 
   useEffect(() => {
     void loadOrders();
+    const refreshTimer = window.setInterval(() => {
+      void loadOrders(true);
+    }, 15000);
+    return () => window.clearInterval(refreshTimer);
+  }, [loadOrders]);
+
+  useEffect(() => {
+    const refreshForNewOrder = () => void loadOrders(true);
+    window.addEventListener("admin:order-inserted", refreshForNewOrder);
+    return () => window.removeEventListener("admin:order-inserted", refreshForNewOrder);
   }, [loadOrders]);
 
   const updateOrderStatus = async (order, status) => {
@@ -188,23 +202,19 @@ export default function AdminOrders() {
     setError("");
 
     try {
-      const updatedAt = new Date().toISOString();
-
-      const { data, error: updateError } = await supabase
-        .from("orders")
-        .update({
-          status,
-          updated_at: updatedAt,
-        })
-        .eq("id", order.id)
-        .select(
-          "id, status, updated_at"
-        )
-        .single();
-
-      if (updateError) {
-        throw updateError;
+      const { data: statusResult, error: updateError } = await supabase.rpc(
+        "update_staff_order_status",
+        { p_order_id: order.id, p_status: status }
+      );
+      if (updateError) throw updateError;
+      if (!statusResult?.ok) {
+        throw new Error(statusResult?.error || "The order status was not updated.");
       }
+      const data = {
+        id: order.id,
+        status: statusResult.status || status,
+        updated_at: statusResult.updated_at || new Date().toISOString(),
+      };
 
       setOrders((current) =>
         current.map((item) =>
@@ -242,6 +252,56 @@ export default function AdminOrders() {
     }
   };
 
+  const markCodPaymentReceived = async (order) => {
+    if (
+      updating === order.id ||
+      order.payment_method !== "cash_on_delivery" ||
+      order.payment_status === "paid" ||
+      order.status === "cancelled"
+    ) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirm you received the full payment for ${order.order_number}. Only mark it paid after collecting the cash or Mobile Money.`
+    );
+    if (!confirmed) return;
+
+    setUpdating(order.id);
+    setError("");
+
+    try {
+      const { data, error: paymentError } = await supabase.rpc(
+        "admin_mark_cod_paid",
+        { p_order_id: order.id }
+      );
+      if (paymentError) throw paymentError;
+      if (!data?.ok) throw new Error("Payment could not be recorded.");
+
+      const paymentUpdate = {
+        payment_status: data.payment_status || "paid",
+        paid_at: data.paid_at || new Date().toISOString(),
+        amount_paid: data.amount_paid ?? order.total,
+      };
+
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id ? { ...item, ...paymentUpdate } : item
+        )
+      );
+      setSelectedOrder((current) =>
+        current?.id === order.id
+          ? { ...current, ...paymentUpdate }
+          : current
+      );
+    } catch (err) {
+      console.error("Could not record COD payment:", err);
+      setError(err?.message || "Could not record the received payment.");
+    } finally {
+      setUpdating(null);
+    }
+  };
+
   const filteredOrders = useMemo(() => {
     const value = search.trim().toLowerCase();
 
@@ -271,23 +331,23 @@ export default function AdminOrders() {
     const total = orders.length;
 
     const pending = orders.filter(
-      (order) => order.status === "Pending"
+      (order) => order.status === "pending"
     ).length;
 
     const processing = orders.filter(
       (order) =>
-        order.status === "Confirmed" ||
-        order.status === "Processing" ||
-        order.status === "Shipped" ||
-        order.status === "Out for delivery"
+        order.status === "confirmed" ||
+        order.status === "processing" ||
+        order.status === "preparing" ||
+        order.status === "out_for_delivery"
     ).length;
 
     const delivered = orders.filter(
-      (order) => order.status === "Delivered"
+      (order) => order.status === "delivered"
     ).length;
 
     const orderValue = orders
-      .filter((order) => order.status !== "Cancelled")
+      .filter((order) => order.status !== "cancelled")
       .reduce(
         (sum, order) => {
           const totalFromDatabase =
@@ -302,7 +362,7 @@ export default function AdminOrders() {
       .filter(
         (order) =>
           order.payment_status === "paid" &&
-          order.status !== "Cancelled"
+          order.status !== "cancelled"
       )
       .reduce(
         (sum, order) =>
@@ -404,7 +464,7 @@ export default function AdminOrders() {
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
           <Stat
             label="Total Orders"
             value={stats.total}
@@ -430,49 +490,18 @@ export default function AdminOrders() {
             label="Order Value"
             value={formatGhs(stats.orderValue)}
           />
-        </div>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-black/40">
-              Paid Value
-            </p>
-
-            <p className="mt-2 text-2xl font-bold text-emerald-700">
-              {formatGhs(stats.paidValue)}
-            </p>
-
-            <p className="mt-2 text-xs text-black/40">
-              Based only on orders currently marked paid.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-black/40">
-              Data Check
-            </p>
-
-            <p
-              className={`mt-2 text-2xl font-bold ${
-                stats.mismatchedOrders > 0
-                  ? "text-amber-700"
-                  : "text-emerald-700"
-              }`}
-            >
-              {stats.mismatchedOrders > 0
-                ? `${stats.mismatchedOrders} issue${
-                    stats.mismatchedOrders === 1
-                      ? ""
-                      : "s"
-                  }`
-                : "All clear"}
-            </p>
-
-            <p className="mt-2 text-xs text-black/40">
-              Stored totals are compared with order
-              items plus delivery fee.
-            </p>
-          </div>
+          <Stat
+            label="Paid Value"
+            value={formatGhs(stats.paidValue)}
+            valueClassName="text-emerald-700"
+          />
+          <Stat
+            label="Data Check"
+            value={stats.mismatchedOrders > 0
+              ? `${stats.mismatchedOrders} issue${stats.mismatchedOrders === 1 ? "" : "s"}`
+              : "All clear"}
+            valueClassName={stats.mismatchedOrders > 0 ? "text-amber-700" : "text-emerald-700"}
+          />
         </div>
 
         <div className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-4 shadow-sm">
@@ -524,7 +553,20 @@ export default function AdminOrders() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-black/[0.06]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] border-collapse text-left">
+                <thead className="bg-[#fff8fc] text-[11px] font-semibold uppercase tracking-[0.12em] text-black/45">
+                  <tr>
+                    <th scope="col" className="px-4 py-3">Order</th>
+                    <th scope="col" className="px-4 py-3">Customer</th>
+                    <th scope="col" className="px-4 py-3">Placed</th>
+                    <th scope="col" className="px-4 py-3 text-right">Total</th>
+                    <th scope="col" className="px-4 py-3">Payment</th>
+                    <th scope="col" className="px-4 py-3">Status</th>
+                    <th scope="col" className="px-4 py-3 text-right">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.06]">
               {filteredOrders.map((order) => {
                 const expanded =
                   selectedOrder?.id === order.id;
@@ -542,79 +584,47 @@ export default function AdminOrders() {
                   !totalsMatch(order);
 
                 return (
-                  <div key={order.id}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedOrder(
-                          expanded ? null : order
-                        )
-                      }
-                      className="w-full px-5 py-5 text-left transition hover:bg-[#fff8fc] sm:px-6"
-                      aria-expanded={expanded}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-sm font-bold">
-                              #{order.order_number}
-                            </span>
-
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass(
-                                order.status
-                              )}`}
-                            >
-                              {order.status}
-                            </span>
-
-                            {hasMismatch && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                Total mismatch
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="mt-2 font-semibold">
-                            {order.full_name}
-                          </p>
-
-                          <p className="mt-1 text-xs text-black/35">
-                            {formatDate(
-                              order.created_at
-                            )}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="font-bold">
-                              {formatGhs(storedTotal)}
-                            </p>
-
-                            <p
-                              className={`mt-1 text-xs capitalize font-semibold ${paymentClass(
-                                order.payment_status
-                              )}`}
-                            >
-                              {order.payment_status}
-                            </p>
-                          </div>
-
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#fff0f7] text-[#ff1f8f]">
-                            {expanded ? (
-                              <ChevronUp className="h-5 w-5" />
-                            ) : (
-                              <ChevronDown className="h-5 w-5" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
+                  <Fragment key={order.id}>
+                    <tr className="align-middle transition hover:bg-[#fffdfd]">
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className="font-mono text-sm font-bold">#{order.order_number}</span>
+                        {hasMismatch && (
+                          <span className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                            <AlertTriangle className="h-3.5 w-3.5" /> Total mismatch
+                          </span>
+                        )}
+                      </td>
+                      <td className="max-w-[240px] px-4 py-3">
+                        <p className="truncate text-sm font-semibold">{order.full_name || "—"}</p>
+                        <p className="truncate text-xs text-black/45">{order.email || order.phone || "No contact details"}</p>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-black/55">{formatDate(order.created_at)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">{formatGhs(storedTotal)}</td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className={`text-sm font-semibold capitalize ${paymentClass(order.payment_status)}`}>{order.payment_status || "—"}</span>
+                        <p className="mt-0.5 text-xs text-black/40">{order.payment_method === "cash_on_delivery" ? "Pay on Delivery" : "Pay Online"}</p>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(order.status)}`}>{statusLabel(order.status)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(expanded ? null : order)}
+                          aria-expanded={expanded}
+                          aria-controls={`order-details-${order.id}`}
+                          aria-label={`${expanded ? "Hide" : "View"} details for order ${order.order_number}`}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-black/10 text-black/55 transition hover:border-[#ff1f8f] hover:text-[#ff1f8f]"
+                        >
+                          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </button>
+                      </td>
+                    </tr>
 
                     {expanded && (
-                      <div className="border-t border-black/[0.06] bg-[#fffdfd] px-5 py-6 sm:px-6">
+                      <tr id={`order-details-${order.id}`}>
+                        <td colSpan={7} className="border-t border-black/[0.06] bg-[#fffdfd] px-5 py-6 sm:px-6">
+                        <div>
                         <div className="grid gap-5 lg:grid-cols-3">
                           <InfoCard title="Customer">
                             <p className="font-semibold">
@@ -668,7 +678,7 @@ export default function AdminOrders() {
                               Method:{" "}
                               <strong className="text-black">
                                 {order.payment_method ===
-                                "pay_on_delivery"
+                                  "cash_on_delivery"
                                   ? "Pay on Delivery"
                                   : "Pay Online"}
                               </strong>
@@ -684,6 +694,12 @@ export default function AdminOrders() {
                                 {order.payment_status}
                               </strong>
                             </p>
+
+                            {order.payment_status === "paid" && order.paid_at && (
+                              <p className="mt-2 text-sm text-emerald-700">
+                                Payment received: {formatDate(order.paid_at)}
+                              </p>
+                            )}
 
                             {order.momo_number && (
                               <p className="mt-2 text-sm text-black/50">
@@ -705,9 +721,9 @@ export default function AdminOrders() {
                             )}
 
                             <p className="mt-3 text-xs text-black/35">
-                              Payment status is controlled by
-                              the verified payment flow, not by
-                              a client-side dropdown.
+                              Paystack is marked paid after automatic
+                              verification. For Pay on Delivery, record payment
+                              only after you collect the cash or Mobile Money.
                             </p>
                           </InfoCard>
                         </div>
@@ -854,10 +870,10 @@ export default function AdminOrders() {
                               {STATUSES.map(
                                 (status) => (
                                   <option
-                                    key={status}
-                                    value={status}
+                                    key={status.value}
+                                    value={status.value}
                                   >
-                                    {status}
+                                    {status.label}
                                   </option>
                                 )
                               )}
@@ -865,18 +881,36 @@ export default function AdminOrders() {
                           </ControlCard>
 
                           <ControlCard label="Payment Status">
-                            <div className="flex min-h-[48px] items-center justify-between rounded-xl border border-black/10 bg-[#fafafa] px-4">
-                              <span
-                                className={`font-semibold capitalize ${paymentClass(
-                                  order.payment_status
-                                )}`}
-                              >
-                                {order.payment_status}
-                              </span>
+                            <div className="flex min-h-[48px] flex-wrap items-center justify-between gap-3 rounded-xl border border-black/10 bg-[#fafafa] px-4 py-3">
+                              <div>
+                                <span
+                                  className={`font-semibold capitalize ${paymentClass(
+                                    order.payment_status
+                                  )}`}
+                                >
+                                  {order.payment_status}
+                                </span>
+                                {order.payment_status === "paid" && order.paid_at && (
+                                  <p className="mt-1 text-xs text-emerald-700">
+                                    Received {formatDate(order.paid_at)}
+                                  </p>
+                                )}
+                              </div>
 
-                              <span className="text-xs text-black/35">
-                                Server controlled
-                              </span>
+                              {order.payment_method === "cash_on_delivery" &&
+                                order.payment_status !== "paid" &&
+                                order.status !== "cancelled" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => markCodPaymentReceived(order)}
+                                    disabled={updating === order.id}
+                                    className="rounded-lg bg-[#ff1f8f] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#e60078] disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {updating === order.id
+                                      ? "Saving…"
+                                      : "Mark payment received"}
+                                  </button>
+                                )}
                             </div>
                           </ControlCard>
                         </div>
@@ -887,11 +921,15 @@ export default function AdminOrders() {
                             Saving changes...
                           </div>
                         )}
-                      </div>
+                        </div>
+                        </td>
+                      </tr>
                     )}
-                  </div>
+                  </Fragment>
                 );
               })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -904,9 +942,10 @@ function Stat({
   label,
   value,
   pink = false,
+  valueClassName = "text-[#111111]",
 }) {
   return (
-    <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-black/[0.07] bg-white p-3 shadow-sm sm:p-4">
       <div
         className={`h-1.5 w-10 rounded-full ${
           pink
@@ -915,11 +954,11 @@ function Stat({
         }`}
       />
 
-      <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-black/40">
+      <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
         {label}
       </p>
 
-      <p className="mt-2 text-2xl font-bold">
+      <p className={`mt-1 text-lg font-bold sm:text-xl ${valueClassName}`}>
         {value}
       </p>
     </div>

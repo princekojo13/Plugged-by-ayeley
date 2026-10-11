@@ -5,8 +5,11 @@ import ProductCard from "@/components/ProductCard";
 import { useProducts } from "@/lib/useProducts";
 
 export default function SpecialOffers() {
-  const { data: products, isLoading } = useProducts({ limit: 200 });
-  const onSale = (products || []).filter((p) => (p.special_offer || (p.sale_price && p.sale_price < p.price)));
+  const { products = [], loading } = useProducts({ limit: 200 });
+  const onSale = products.filter((product) =>
+    product.special_offer ||
+    Number(product.compare_at_price) > Number(product.price)
+  );
 
   return (
     <div className="bg-white">
@@ -26,7 +29,7 @@ export default function SpecialOffers() {
 
       <section className="py-12 sm:py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {isLoading ? (
+          {loading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
               {[...Array(8)].map((_, i) => (
                 <div key={i} className="aspect-[3/4] bg-london animate-pulse" />

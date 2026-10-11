@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
   email: SITE_CONFIG.email,
   phone: SITE_CONFIG.phone,
   whatsapp: SITE_CONFIG.whatsappDisplay,
+  address: "",
   domain: "",
   snapchat: SITE_CONFIG.snapchat,
   instagram: "",
@@ -22,9 +23,9 @@ async function fetchStoreSettings() {
   const { data, error } = await supabase
     .from("store_settings")
     .select(
-      "brand_name,tagline,email,phone,whatsapp,domain,snapchat,instagram,facebook,tiktok"
+      "brand_name:store_name,tagline,email,phone,whatsapp,address,domain,snapchat,instagram,facebook,tiktok"
     )
-    .eq("id", 1)
+    .eq("id", true)
     .maybeSingle();
 
   if (error) {
@@ -59,7 +60,10 @@ export function useStoreSettings() {
 }
 
 export function whatsappLink(number, message) {
-  const digits = String(number || "").replace(/[^0-9]/g, "");
+  const rawDigits = String(number || "").replace(/[^0-9]/g, "");
+  const digits = rawDigits.startsWith("0")
+    ? `233${rawDigits.slice(1)}`
+    : rawDigits;
   const text = message ? `?text=${encodeURIComponent(message)}` : "";
   return `https://wa.me/${digits}${text}`;
 }

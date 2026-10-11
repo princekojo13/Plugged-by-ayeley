@@ -38,8 +38,11 @@ import AdminProducts from "@/pages/AdminProducts";
 import AdminProductForm from "@/pages/AdminProductForm";
 import AdminOrders from "@/pages/AdminOrders";
 import AdminReviews from "@/pages/AdminReviews";
-import AdminMessages from "@/pages/AdminMessages";
 import AdminSettings from "@/pages/AdminSettings";
+import AdminAssistants from "@/pages/AdminAssistants";
+import AssistantWorkspace from "@/pages/AssistantWorkspace";
+import AssistantInviteAccept from "@/pages/AssistantInviteAccept";
+import useAdminOrderNotifications from "@/lib/useAdminOrderNotifications";
 
 function LoadingScreen() {
   return (
@@ -87,6 +90,27 @@ function AdminProtectedRoute({ children }) {
     );
   }
 
+  return (
+    <>
+      <AdminOrderNotificationListener />
+      {children}
+    </>
+  );
+}
+
+function AdminOrderNotificationListener() {
+  useAdminOrderNotifications();
+  return null;
+}
+
+function AssistantProtectedRoute({ children }) {
+  const { loading, isAuthenticated, isAssistant } = useAuth();
+  const location = useLocation();
+
+  if (loading) return <LoadingScreen />;
+  if (!isAuthenticated || !isAssistant) {
+    return <Navigate to="/admin-login" replace state={{ from: location.pathname }} />;
+  }
   return children;
 }
 
@@ -100,6 +124,17 @@ function AppRoutes() {
       <Route
         path="/admin-login"
         element={<Login />}
+      />
+      <Route path="/assistant-login" element={<Login />} />
+      <Route path="/assistant-invite" element={<AssistantInviteAccept />} />
+
+      <Route
+        path="/assistant"
+        element={
+          <AssistantProtectedRoute>
+            <AssistantWorkspace />
+          </AssistantProtectedRoute>
+        }
       />
 
       {/* =====================================================
@@ -161,19 +196,19 @@ function AppRoutes() {
       />
 
       <Route
-        path="/admin/messages"
+        path="/admin/settings"
         element={
           <AdminProtectedRoute>
-            <AdminMessages />
+            <AdminSettings />
           </AdminProtectedRoute>
         }
       />
 
       <Route
-        path="/admin/settings"
+        path="/admin/assistants"
         element={
           <AdminProtectedRoute>
-            <AdminSettings />
+            <AdminAssistants />
           </AdminProtectedRoute>
         }
       />

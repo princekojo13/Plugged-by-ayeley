@@ -4,19 +4,21 @@ import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/utils";
 
 const MAX_NAME_LENGTH = 100;
-const MAX_REVIEW_LENGTH = 3000;
+const MAX_REVIEW_LENGTH = 2000;
 
 function StarRating({
   value,
   onChange,
   size = "h-5 w-5",
   label = "Rating",
+  labelledBy,
 }) {
   return (
     <div
       className="flex gap-1"
       role={onChange ? "radiogroup" : undefined}
-      aria-label={label}
+      aria-label={labelledBy ? undefined : label}
+      aria-labelledby={labelledBy}
     >
       {[1, 2, 3, 4, 5].map((star) => {
         const active = star <= Number(value || 0);
@@ -90,7 +92,7 @@ export default function ReviewSection({ productId }) {
           product_id,
           customer_name,
           rating,
-          review,
+          review_text,
           created_at
         `)
         .eq("product_id", productId)
@@ -190,36 +192,20 @@ export default function ReviewSection({ productId }) {
     setError("");
 
     try {
-      /*
-       * Guest reviews are created through the secure
-       * Edge Function. The browser never inserts directly
-       * into the reviews table.
-       */
-      const { data, error: functionError } =
-        await supabase.functions.invoke(
-          "create-review",
-          {
-            body: {
-              product_id: productId,
-              customer_name: customerName,
-              rating: Number(form.rating),
-              review: reviewText,
-            },
-          }
-        );
+      // The database insert policy accepts pending reviews only.
+      const { error: insertError } = await supabase
+        .from("reviews")
+        .insert({
+          product_id: productId,
+          customer_name: customerName,
+          rating: Number(form.rating),
+          review_text: reviewText,
+          approved: false,
+        });
 
-      if (functionError) {
-        throw new Error(
-          functionError.message ||
-            "Failed to submit your review."
-        );
-      }
-
-      if (!data?.success) {
-        throw new Error(
-          data?.error ||
-            "Failed to submit your review."
-        );
+      if (insertError) {
+        console.error("Review insert failed:", insertError);
+        throw new Error("Failed to submit your review. Please try again.");
       }
 
       setSuccess(true);
@@ -311,18 +297,19 @@ export default function ReviewSection({ productId }) {
               </p>
 
               <p className="mt-1 text-sm text-muted-foreground">
-                Your review has been submitted.
+                Your review is awaiting approval and will appear after it is reviewed.
               </p>
             </div>
           ) : (
             <>
               <div className="mb-4">
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-carbon">
+                <span id="review-rating-label" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-carbon">
                   Your Rating
-                </label>
+                </span>
 
                 <StarRating
                   value={form.rating}
+                  labelledBy="review-rating-label"
                   onChange={(value) =>
                     setField("rating", value)
                   }
@@ -330,11 +317,13 @@ export default function ReviewSection({ productId }) {
               </div>
 
               <div className="mb-4">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
+                <label htmlFor="review-customer-name" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
                   Name *
                 </label>
 
                 <input
+                  id="review-customer-name"
+                  name="customer_name"
                   type="text"
                   value={form.customer_name}
                   onChange={(event) =>
@@ -352,11 +341,13 @@ export default function ReviewSection({ productId }) {
               </div>
 
               <div className="mb-4">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
+                <label htmlFor="review-comment" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
                   Comment *
                 </label>
 
                 <textarea
+                  id="review-comment"
+                  name="review"
                   value={form.review}
                   onChange={(event) =>
                     setField(
@@ -466,7 +457,7 @@ export default function ReviewSection({ productId }) {
               </div>
 
               <p className="text-sm leading-relaxed text-muted-foreground">
-                {review.review}
+                {review.review_text}
               </p>
             </div>
           ))}

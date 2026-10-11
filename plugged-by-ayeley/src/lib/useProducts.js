@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+export function normalizeProduct(product) {
+  if (!product) return product;
+  const images = [product.image_url, ...(Array.isArray(product.additional_images) ? product.additional_images : [])]
+    .filter((image) => typeof image === "string" && image.trim());
+  return {
+    ...product,
+    stock: Number(product.stock_quantity ?? product.stock ?? 0),
+    images,
+  };
+}
+
 export function useProducts({
   category,
   search,
@@ -63,7 +74,7 @@ export function useProducts({
         throw queryError;
       }
 
-      setProducts(data || []);
+      setProducts((data || []).map(normalizeProduct));
     } catch (err) {
       console.error("Failed to load products:", err);
       setProducts([]);
@@ -124,7 +135,7 @@ export function useProduct(id) {
           throw queryError;
         }
 
-        setProduct(data || null);
+        setProduct(normalizeProduct(data));
       } catch (err) {
         console.error("Failed to load product:", err);
         setProduct(null);
@@ -159,5 +170,5 @@ export async function getProduct(id) {
     throw error;
   }
 
-  return data;
+  return normalizeProduct(data);
 }

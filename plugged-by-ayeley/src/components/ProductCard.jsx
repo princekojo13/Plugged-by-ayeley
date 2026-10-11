@@ -11,15 +11,15 @@ export default function ProductCard({ product }) {
   const { addToCart } = useCart();
   const [open, setOpen] = useState(false);
   const [qty, setQty] = useState(1);
-  const onSale = product.sale_price && product.sale_price < product.price;
+  const compareAtPrice = Number(product.compare_at_price);
+  const currentPrice = Number(product.price);
+  const onSale = Number.isFinite(compareAtPrice) && compareAtPrice > currentPrice;
   const inStock = product.stock > 0;
   const isPreorder = !inStock;
-  const effectivePrice = product.sale_price || product.price;
+  const effectivePrice = currentPrice;
   const maxQty = inStock ? product.stock || 99 : PREORDER_MAX;
 
-  const openModal = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const openModal = () => {
     setQty(1);
     setOpen(true);
   };
@@ -32,10 +32,8 @@ export default function ProductCard({ product }) {
 
   return (
     <>
-      <Link
-        to={`/product/${product.id}`}
-        className="group flex flex-col bg-white border border-border hover:border-carbon transition-all duration-300 hover:shadow-lg"
-      >
+      <article className="group flex h-full flex-col border border-border bg-white transition-all duration-300 hover:border-carbon hover:shadow-lg">
+        <Link to={`/product/${product.id}`} className="flex flex-1 flex-col">
         <div className="relative aspect-square overflow-hidden bg-london">
           <Image
             src={product.images?.[0]}
@@ -80,10 +78,14 @@ export default function ProductCard({ product }) {
           <div className="flex items-baseline gap-2 mt-auto mb-3">
             <span className="font-heading font-bold text-lg text-carbon">₵{effectivePrice.toFixed(2)}</span>
             {onSale && (
-              <span className="text-sm text-muted-foreground line-through">₵{product.price.toFixed(2)}</span>
+              <span className="text-sm text-muted-foreground line-through">₵{compareAtPrice.toFixed(2)}</span>
             )}
           </div>
+        </div>
+        </Link>
+        <div className="px-4 pb-4">
           <button
+            type="button"
             onClick={openModal}
             className={cn(
               "w-full py-2.5 text-xs font-bold uppercase tracking-wider transition-colors flex items-center justify-center gap-2",
@@ -91,16 +93,16 @@ export default function ProductCard({ product }) {
             )}
           >
             <ShoppingBag className="w-3.5 h-3.5" />
-            {inStock ? "Add to Cart" : "Pre-order"}
+            {inStock ? "Add to Cart" : "Order"}
           </button>
         </div>
-      </Link>
+      </article>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="font-heading text-carbon">
-              {inStock ? "Add to Cart" : "Pre-order"}
+              {inStock ? "Add to Cart" : "Order"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -115,7 +117,7 @@ export default function ProductCard({ product }) {
             </div>
             {isPreorder && (
               <div className="bg-pink/5 border-l-4 border-pink p-3 text-xs text-muted-foreground">
-                This item is out of stock in Ghana and ships from the UK. Delivery takes 10–21 days.
+                This item is in stock.
               </div>
             )}
             <div>
@@ -143,14 +145,14 @@ export default function ProductCard({ product }) {
                 <p className="text-xs text-orange-600 mt-2">Only {product.stock} left in stock</p>
               )}
               {isPreorder && (
-                <p className="text-xs text-muted-foreground mt-2">Max {PREORDER_MAX} per pre-order</p>
+                <p className="text-xs text-muted-foreground mt-2">Max {PREORDER_MAX} per Order</p>
               )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
             <Button onClick={confirmAdd} className="bg-pink text-white hover:bg-carbon">
-              {inStock ? "Add to Cart" : "Confirm Pre-order"}
+              {inStock ? "Add to Cart" : "Confirm Order"}
             </Button>
           </DialogFooter>
         </DialogContent>
