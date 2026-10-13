@@ -73,6 +73,119 @@ function isCustomerError(message: string): boolean {
     message.startsWith("Insufficient stock for ");
 }
 
+async function createOrderQuote(
+  db: ReturnType<typeof createClient>,
+  body: Record<string, unknown>,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const latitude = number(body.delivery_lat ?? body.latitude);
+  const longitude = number(body.delivery_lng ?? body.longitude);
+  if (
+    !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+    !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+  ) {
+    return respond({ success: false, error: "Select a valid delivery location on the map." }, 400, headers);
+  }
+
+  const incomingItems = body.items ?? body.cartItems;
+  if (!Array.isArray(incomingItems) || incomingItems.length === 0 || incomingItems.length > 50) {
+    return respond({ success: false, error: "Your cart is empty or invalid." }, 400, headers);
+  }
+
+  const quantities = new Map<string, number>();
+  for (const value of incomingItems) {
+    const item = record(value);
+    const productId = text(item.product_id ?? item.productId ?? item.id, 40).toLowerCase();
+    const quantity = number(item.quantity ?? item.qty);
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId) ||
+      !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100
+    ) {
+      return respond({ success: false, error: "One or more cart items are invalid." }, 400, headers);
+    }
+    const totalQuantity = (quantities.get(productId) || 0) + quantity;
+    if (totalQuantity > 100) {
+      return respond({ success: false, error: "Quantity must be between 1 and 100 per product." }, 400, headers);
+    }
+    quantities.set(productId, totalQuantity);
+  }
+
+  const productIds = [...quantities.keys()];
+  const [productsResult, settingsResult] = await Promise.all([
+    db.from("products").select("id,price").in("id", productIds).eq("active", true),
+    db.from("store_settings").select("max_delivery_distance_km").eq("id", true).maybeSingle(),
+  ]);
+
+  if (productsResult.error || settingsResult.error || !settingsResult.data) {
+    console.error("Order quote settings or products could not be loaded.");
+    return respond({ success: false, error: "We couldn't calculate your order total. Please try again." }, 503, headers);
+  }
+
+  const products = productsResult.data || [];
+  if (products.length !== productIds.length) {
+    return respond({ success: false, error: "One or more items are no longer available. Refresh your cart and try again." }, 409, headers);
+  }
+
+  const priceById = new Map(products.map((product) => [product.id, Number(product.price)]));
+  if ([...priceById.values()].some((price) => !Number.isFinite(price) || price < 0)) {
+    console.error("Order quote product prices are invalid.");
+    return respond({ success: false, error: "We couldn't calculate your order total. Please try again." }, 503, headers);
+  }
+  const subtotalValue = [...quantities.entries()].reduce(
+    (sum, [productId, quantity]) => sum + (priceById.get(productId) ?? 0) * quantity,
+    0,
+  );
+  if (!Number.isFinite(subtotalValue) || subtotalValue < 0) {
+    return respond({ success: false, error: "We couldn't calculate your order total. Please try again." }, 503, headers);
+  }
+  const subtotal = Math.round((subtotalValue + Number.EPSILON) * 100) / 100;
+
+  const { data: distance, error: distanceError } = await db.rpc("calculate_distance_km", {
+    p_latitude: latitude,
+    p_longitude: longitude,
+  });
+  const distanceKm = Number(distance);
+  if (distanceError || distance === null || distance === undefined || !Number.isFinite(distanceKm)) {
+    console.error("Order quote distance could not be calculated.");
+    return respond({ success: false, error: "We couldn't calculate delivery for this location. Please try again." }, 503, headers);
+  }
+
+  const maxDistance = settingsResult.data.max_delivery_distance_km;
+  if (maxDistance !== null && maxDistance !== undefined && distanceKm > Number(maxDistance)) {
+    return respond({ success: false, error: "Sorry, this address is outside our delivery range." }, 400, headers);
+  }
+
+  const { data: deliveryFee, error: feeError } = await db.rpc("calculate_delivery_fee", {
+    distance_km: distanceKm,
+  });
+  const deliveryFeeValue = Number(deliveryFee);
+  if (feeError || deliveryFee === null || deliveryFee === undefined || !Number.isFinite(deliveryFeeValue) || deliveryFeeValue < 0) {
+    console.error("Order quote delivery fee could not be calculated.");
+    return respond({ success: false, error: "We couldn't calculate delivery for this location. Please try again." }, 503, headers);
+  }
+
+  const total = Math.round((subtotal + deliveryFeeValue + Number.EPSILON) * 100) / 100;
+  return respond({
+    success: true,
+    quote: {
+      subtotal,
+      delivery_fee: deliveryFeeValue,
+      total,
+      distance_km: distanceKm,
+      currency: "GHS",
+      items: [...quantities.entries()].map(([productId, quantity]) => {
+        const unitPrice = priceById.get(productId) ?? 0;
+        return {
+          product_id: productId,
+          quantity,
+          unit_price: unitPrice,
+          line_total: Math.round((unitPrice * quantity + Number.EPSILON) * 100) / 100,
+        };
+      }),
+    },
+  }, 200, headers);
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
   const headers = corsHeaders(origin);
@@ -103,6 +216,19 @@ Deno.serve(async (req: Request) => {
       body = record(JSON.parse(rawBody));
     } catch {
       return respond({ success: false, error: "Invalid request body." }, 400, headers);
+    }
+
+    if (text(body.action, 20).toLowerCase() === "quote") {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (!supabaseUrl || !serviceRoleKey) {
+        console.error("create-order: Supabase server configuration is missing.");
+        return respond({ success: false, error: "Checkout is temporarily unavailable." }, 503, headers);
+      }
+      const db = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      return await createOrderQuote(db, body, headers);
     }
 
     const fullName = text(body.full_name ?? body.fullName, 120);
@@ -194,9 +320,29 @@ Deno.serve(async (req: Request) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
+    const requestedProductIds = [...new Set(items.map((item) => item.product_id))];
+    const { data: activeProducts, error: productError } = await db
+      .from("products")
+      .select("id")
+      .in("id", requestedProductIds)
+      .eq("active", true);
+    if (productError) {
+      console.error("create-order: Product availability could not be checked.");
+      return respond({ success: false, error: "Product availability could not be checked. Please try again." }, 503, headers);
+    }
+
+    const activeProductIds = new Set((activeProducts || []).map((product) => product.id));
+    if (requestedProductIds.some((productId) => !activeProductIds.has(productId))) {
+      return respond(
+        { success: false, error: "One or more items are no longer available. Remove them from your cart before checking out." },
+        409,
+        headers,
+      );
+    }
+
     const { data: settings, error: settingsError } = await db
       .from("store_settings")
-      .select("store_open,maintenance_mode,cod_accra_only,cod_max_distance_km")
+      .select("store_open,maintenance_mode,paystack_enabled,cod_enabled,cod_accra_only,cod_max_distance_km")
       .eq("id", true)
       .maybeSingle();
     if (settingsError || !settings) {
@@ -205,6 +351,12 @@ Deno.serve(async (req: Request) => {
     }
     if (!settings.store_open || settings.maintenance_mode) {
       return respond({ success: false, error: "The store is currently closed and cannot accept orders." }, 409, headers);
+    }
+    if (paymentMethod === "paystack" && !settings.paystack_enabled) {
+      return respond({ success: false, error: "Online payment is currently unavailable." }, 409, headers);
+    }
+    if (paymentMethod === "cash_on_delivery" && !settings.cod_enabled) {
+      return respond({ success: false, error: "Cash on delivery is currently unavailable." }, 409, headers);
     }
     if (paymentMethod === "cash_on_delivery") {
       if (settings.cod_accra_only && region.toLowerCase() !== "greater accra") {

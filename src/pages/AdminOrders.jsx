@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -106,6 +106,7 @@ export default function AdminOrders() {
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [error, setError] = useState("");
+  const [dataLoadError, setDataLoadError] = useState("");
 
   const loadOrders = useCallback(async (manual = false) => {
     if (manual) {
@@ -115,6 +116,7 @@ export default function AdminOrders() {
     }
 
     setError("");
+    setDataLoadError("");
 
     try {
       const { data, error: queryError } = await supabase
@@ -169,10 +171,10 @@ export default function AdminOrders() {
     } catch (err) {
       console.error("Failed to load orders:", err);
 
-      setOrders([]);
-      setError(
-        err?.message || "Could not load orders."
-      );
+      const message = err?.message || "Could not load orders.";
+      if (!manual) setOrders([]);
+      setDataLoadError(message);
+      setError(message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -187,6 +189,12 @@ export default function AdminOrders() {
     return () => window.clearInterval(refreshTimer);
   }, [loadOrders]);
 
+  useEffect(() => {
+    const refreshForNewOrder = () => void loadOrders(true);
+    window.addEventListener("admin:order-inserted", refreshForNewOrder);
+    return () => window.removeEventListener("admin:order-inserted", refreshForNewOrder);
+  }, [loadOrders]);
+
   const updateOrderStatus = async (order, status) => {
     if (updating === order.id || status === order.status) {
       return;
@@ -196,24 +204,19 @@ export default function AdminOrders() {
     setError("");
 
     try {
-      let data;
-      if (status === "cancelled") {
-        const { data: cancelResult, error: cancelError } = await supabase.rpc("admin_cancel_order", {
-          p_order_id: order.id,
-          p_restock: true,
-        });
-        if (cancelError) throw cancelError;
-        data = { id: order.id, status: cancelResult?.ok ? "cancelled" : order.status, updated_at: new Date().toISOString() };
-      } else {
-        const { data: updated, error: updateError } = await supabase
-          .from("orders")
-          .update({ order_status: status, updated_at: new Date().toISOString() })
-          .eq("id", order.id)
-          .select("id, status:order_status, updated_at")
-          .single();
-        if (updateError) throw updateError;
-        data = updated;
+      const { data: statusResult, error: updateError } = await supabase.rpc(
+        "update_staff_order_status",
+        { p_order_id: order.id, p_status: status }
+      );
+      if (updateError) throw updateError;
+      if (!statusResult?.ok) {
+        throw new Error(statusResult?.error || "The order status was not updated.");
       }
+      const data = {
+        id: order.id,
+        status: statusResult.status || status,
+        updated_at: statusResult.updated_at || new Date().toISOString(),
+      };
 
       setOrders((current) =>
         current.map((item) =>
@@ -255,7 +258,7 @@ export default function AdminOrders() {
     if (
       updating === order.id ||
       order.payment_method !== "cash_on_delivery" ||
-      order.payment_status === "paid" ||
+      !["pending", "failed"].includes(order.payment_status) ||
       order.status === "cancelled"
     ) {
       return;
@@ -296,6 +299,46 @@ export default function AdminOrders() {
     } catch (err) {
       console.error("Could not record COD payment:", err);
       setError(err?.message || "Could not record the received payment.");
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const verifyPaystackPayment = async (order) => {
+    if (
+      updating === order.id ||
+      order.payment_method !== "paystack" ||
+      !["pending", "failed"].includes(order.payment_status) ||
+      !order.payment_reference
+    ) {
+      return;
+    }
+
+    setUpdating(order.id);
+    setError("");
+
+    try {
+      const { data, error: verificationError } = await supabase.functions.invoke(
+        "verify-paystack",
+        { body: { reference: order.payment_reference } }
+      );
+      if (verificationError) throw verificationError;
+
+      await loadOrders(true);
+
+      if (data?.ok === true) return;
+      if (data?.reason === "payment_not_successful" && String(data.gateway_status || "").toLowerCase() === "failed") {
+        setError("Paystack confirmed that this payment failed. The order has been refreshed.");
+      } else if (data?.reason === "payment_not_successful") {
+        setError("Paystack has not confirmed this payment yet. The order remains unpaid.");
+      } else if (data?.reason === "amount_mismatch") {
+        setError("Paystack reported a different amount or currency. The order is flagged for review and was not marked paid.");
+      } else {
+        setError("Paystack could not confirm this payment. The payment status was not changed.");
+      }
+    } catch (err) {
+      console.error("Could not verify Paystack payment:", err);
+      setError(err?.message || "Could not verify the payment with Paystack.");
     } finally {
       setUpdating(null);
     }
@@ -360,8 +403,7 @@ export default function AdminOrders() {
     const paidValue = orders
       .filter(
         (order) =>
-          order.payment_status === "paid" &&
-          order.status !== "cancelled"
+          order.payment_status === "paid"
       )
       .reduce(
         (sum, order) =>
@@ -372,6 +414,9 @@ export default function AdminOrders() {
     const mismatchedOrders = orders.filter(
       (order) => !totalsMatch(order)
     ).length;
+    const paidCancelledOrders = orders.filter(
+      (order) => order.status === "cancelled" && order.payment_status === "paid"
+    ).length;
 
     return {
       total,
@@ -381,8 +426,15 @@ export default function AdminOrders() {
       orderValue,
       paidValue,
       mismatchedOrders,
+      paidCancelledOrders,
     };
   }, [orders]);
+
+  const showStat = (value) => {
+    if (loading) return "…";
+    if (dataLoadError) return "—";
+    return value;
+  };
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111111]">
@@ -441,6 +493,18 @@ export default function AdminOrders() {
           </div>
         )}
 
+        {!loading && !dataLoadError && stats.paidCancelledOrders > 0 && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-semibold">Cancelled order payment needs review</p>
+              <p className="mt-1 leading-6">
+                {stats.paidCancelledOrders} cancelled {stats.paidCancelledOrders === 1 ? "order is" : "orders are"} still marked paid. Confirm each payment was refunded in Paystack before treating the paid value as cash retained.
+              </p>
+            </div>
+          </div>
+        )}
+
         {stats.mismatchedOrders > 0 && (
           <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -463,75 +527,44 @@ export default function AdminOrders() {
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
           <Stat
             label="Total Orders"
-            value={stats.total}
+            value={showStat(stats.total)}
             pink
           />
 
           <Stat
             label="Pending"
-            value={stats.pending}
+            value={showStat(stats.pending)}
           />
 
           <Stat
             label="In Progress"
-            value={stats.processing}
+            value={showStat(stats.processing)}
           />
 
           <Stat
             label="Delivered"
-            value={stats.delivered}
+            value={showStat(stats.delivered)}
           />
 
           <Stat
             label="Order Value"
-            value={formatGhs(stats.orderValue)}
+            value={dataLoadError ? "—" : loading ? "Loading…" : formatGhs(stats.orderValue)}
           />
-        </div>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-black/40">
-              Paid Value
-            </p>
-
-            <p className="mt-2 text-2xl font-bold text-emerald-700">
-              {formatGhs(stats.paidValue)}
-            </p>
-
-            <p className="mt-2 text-xs text-black/40">
-              Based only on orders currently marked paid.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-black/40">
-              Data Check
-            </p>
-
-            <p
-              className={`mt-2 text-2xl font-bold ${
-                stats.mismatchedOrders > 0
-                  ? "text-amber-700"
-                  : "text-emerald-700"
-              }`}
-            >
-              {stats.mismatchedOrders > 0
-                ? `${stats.mismatchedOrders} issue${
-                    stats.mismatchedOrders === 1
-                      ? ""
-                      : "s"
-                  }`
-                : "All clear"}
-            </p>
-
-            <p className="mt-2 text-xs text-black/40">
-              Stored totals are compared with order
-              items plus delivery fee.
-            </p>
-          </div>
+          <Stat
+            label="Paid Value"
+            value={dataLoadError ? "—" : loading ? "Loading…" : formatGhs(stats.paidValue)}
+            valueClassName="text-emerald-700"
+          />
+          <Stat
+            label="Data Check"
+            value={dataLoadError ? "Unavailable" : loading ? "Loading…" : stats.mismatchedOrders > 0
+              ? `${stats.mismatchedOrders} issue${stats.mismatchedOrders === 1 ? "" : "s"}`
+              : "All clear"}
+            valueClassName={dataLoadError || loading ? "text-black/45" : stats.mismatchedOrders > 0 ? "text-amber-700" : "text-emerald-700"}
+          />
         </div>
 
         <div className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-4 shadow-sm">
@@ -552,11 +585,11 @@ export default function AdminOrders() {
           <div className="mt-4 border-t border-black/[0.06] pt-4 text-sm text-black/40">
             Showing{" "}
             <span className="font-semibold text-black">
-              {filteredOrders.length}
+              {loading ? "…" : dataLoadError ? "—" : filteredOrders.length}
             </span>{" "}
             of{" "}
             <span className="font-semibold text-black">
-              {orders.length}
+              {loading ? "…" : dataLoadError ? "—" : orders.length}
             </span>{" "}
             orders
           </div>
@@ -566,6 +599,12 @@ export default function AdminOrders() {
           {loading ? (
             <div className="flex min-h-[350px] items-center justify-center">
               <RefreshCw className="h-8 w-8 animate-spin text-[#ff1f8f]" />
+            </div>
+          ) : dataLoadError ? (
+            <div className="flex min-h-[350px] flex-col items-center justify-center px-6 text-center">
+              <AlertTriangle className="h-8 w-8 text-amber-600" />
+              <h2 className="mt-4 font-heading text-xl font-bold">Orders could not be loaded</h2>
+              <p className="mt-2 max-w-sm text-sm leading-6 text-black/45">Use Refresh to try again. Counts stay blank until order data loads successfully.</p>
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="flex min-h-[350px] flex-col items-center justify-center px-6 text-center">
@@ -583,7 +622,20 @@ export default function AdminOrders() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-black/[0.06]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] border-collapse text-left">
+                <thead className="bg-[#fff8fc] text-[11px] font-semibold uppercase tracking-[0.12em] text-black/45">
+                  <tr>
+                    <th scope="col" className="px-4 py-3">Order</th>
+                    <th scope="col" className="px-4 py-3">Customer</th>
+                    <th scope="col" className="px-4 py-3">Placed</th>
+                    <th scope="col" className="px-4 py-3 text-right">Total</th>
+                    <th scope="col" className="px-4 py-3">Payment</th>
+                    <th scope="col" className="px-4 py-3">Status</th>
+                    <th scope="col" className="px-4 py-3 text-right">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.06]">
               {filteredOrders.map((order) => {
                 const expanded =
                   selectedOrder?.id === order.id;
@@ -601,84 +653,61 @@ export default function AdminOrders() {
                   !totalsMatch(order);
 
                 return (
-                  <div key={order.id}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedOrder(
-                          expanded ? null : order
-                        )
-                      }
-                      className="w-full px-5 py-5 text-left transition hover:bg-[#fff8fc] sm:px-6"
-                      aria-expanded={expanded}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-sm font-bold">
-                              #{order.order_number}
-                            </span>
-
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass(
-                                order.status
-                              )}`}
-                            >
-                                {statusLabel(order.status)}
-                            </span>
-
-                            {hasMismatch && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                Total mismatch
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="mt-2 font-semibold">
-                            {order.full_name}
-                          </p>
-
-                          <p className="mt-1 text-xs text-black/35">
-                            {formatDate(
-                              order.created_at
-                            )}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="font-bold">
-                              {formatGhs(storedTotal)}
-                            </p>
-
-                            <p
-                              className={`mt-1 text-xs capitalize font-semibold ${paymentClass(
-                                order.payment_status
-                              )}`}
-                            >
-                              {order.payment_status}
-                            </p>
-                            {order.payment_status === "paid" && order.paid_at && (
-                              <p className="mt-1 text-[10px] text-emerald-700">
-                                Received {formatDate(order.paid_at)}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#fff0f7] text-[#ff1f8f]">
-                            {expanded ? (
-                              <ChevronUp className="h-5 w-5" />
-                            ) : (
-                              <ChevronDown className="h-5 w-5" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
+                  <Fragment key={order.id}>
+                    <tr className="align-middle transition hover:bg-[#fffdfd]">
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className="font-mono text-sm font-bold">#{order.order_number}</span>
+                        {hasMismatch && (
+                          <span className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                            <AlertTriangle className="h-3.5 w-3.5" /> Total mismatch
+                          </span>
+                        )}
+                      </td>
+                      <td className="max-w-[240px] px-4 py-3">
+                        <p className="truncate text-sm font-semibold">{order.full_name || "—"}</p>
+                        <p className="truncate text-xs text-black/45">{order.email || order.phone || "No contact details"}</p>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-black/55">{formatDate(order.created_at)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold">{formatGhs(storedTotal)}</td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className={`text-sm font-semibold capitalize ${paymentClass(order.payment_status)}`}>{order.payment_status || "—"}</span>
+                        <p className="mt-0.5 text-xs text-black/40">{order.payment_method === "cash_on_delivery" ? "Pay on Delivery" : "Pay Online"}</p>
+                        {order.payment_method === "cash_on_delivery" &&
+                          ["pending", "failed"].includes(order.payment_status) &&
+                          order.status !== "cancelled" && (
+                            <button type="button" onClick={() => markCodPaymentReceived(order)} disabled={updating === order.id} className="mt-2 rounded-lg bg-[#ff1f8f] px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-[#e60078] disabled:cursor-not-allowed disabled:opacity-60">
+                              {updating === order.id ? "Saving…" : "Mark received"}
+                            </button>
+                          )}
+                        {order.payment_method === "paystack" &&
+                          ["pending", "failed"].includes(order.payment_status) &&
+                          order.payment_reference && (
+                            <button type="button" onClick={() => verifyPaystackPayment(order)} disabled={updating === order.id} className="mt-2 rounded-lg border border-black/15 px-2.5 py-1.5 text-[11px] font-bold text-black/70 transition hover:border-[#ff1f8f] hover:text-[#e60078] disabled:cursor-not-allowed disabled:opacity-60">
+                              {updating === order.id ? "Checking…" : "Check Paystack"}
+                            </button>
+                          )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(order.status)}`}>{statusLabel(order.status)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(expanded ? null : order)}
+                          aria-expanded={expanded}
+                          aria-controls={`order-details-${order.id}`}
+                          aria-label={`${expanded ? "Hide" : "View"} details for order ${order.order_number}`}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-black/10 text-black/55 transition hover:border-[#ff1f8f] hover:text-[#ff1f8f]"
+                        >
+                          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </button>
+                      </td>
+                    </tr>
 
                     {expanded && (
-                      <div className="border-t border-black/[0.06] bg-[#fffdfd] px-5 py-6 sm:px-6">
+                      <tr id={`order-details-${order.id}`}>
+                        <td colSpan={7} className="border-t border-black/[0.06] bg-[#fffdfd] px-5 py-6 sm:px-6">
+                        <div>
                         <div className="grid gap-5 lg:grid-cols-3">
                           <InfoCard title="Customer">
                             <p className="font-semibold">
@@ -952,7 +981,7 @@ export default function AdminOrders() {
                               </div>
 
                               {order.payment_method === "cash_on_delivery" &&
-                                order.payment_status !== "paid" &&
+                                ["pending", "failed"].includes(order.payment_status) &&
                                 order.status !== "cancelled" && (
                                   <button
                                     type="button"
@@ -965,6 +994,18 @@ export default function AdminOrders() {
                                       : "Mark payment received"}
                                   </button>
                                 )}
+                              {order.payment_method === "paystack" &&
+                                ["pending", "failed"].includes(order.payment_status) &&
+                                order.payment_reference && (
+                                  <button
+                                    type="button"
+                                    onClick={() => verifyPaystackPayment(order)}
+                                    disabled={updating === order.id}
+                                    className="rounded-lg border border-black/15 px-3 py-2 text-xs font-bold text-black/70 transition hover:border-[#ff1f8f] hover:text-[#e60078] disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {updating === order.id ? "Checking…" : "Check Paystack"}
+                                  </button>
+                                )}
                             </div>
                           </ControlCard>
                         </div>
@@ -975,11 +1016,15 @@ export default function AdminOrders() {
                             Saving changes...
                           </div>
                         )}
-                      </div>
+                        </div>
+                        </td>
+                      </tr>
                     )}
-                  </div>
+                  </Fragment>
                 );
               })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -992,9 +1037,10 @@ function Stat({
   label,
   value,
   pink = false,
+  valueClassName = "text-[#111111]",
 }) {
   return (
-    <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-black/[0.07] bg-white p-3 shadow-sm sm:p-4">
       <div
         className={`h-1.5 w-10 rounded-full ${
           pink
@@ -1003,11 +1049,11 @@ function Stat({
         }`}
       />
 
-      <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-black/40">
+      <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-black/40">
         {label}
       </p>
 
-      <p className="mt-2 text-2xl font-bold">
+      <p className={`mt-1 text-lg font-bold sm:text-xl ${valueClassName}`}>
         {value}
       </p>
     </div>

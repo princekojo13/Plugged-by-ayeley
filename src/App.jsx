@@ -38,11 +38,11 @@ import AdminProducts from "@/pages/AdminProducts";
 import AdminProductForm from "@/pages/AdminProductForm";
 import AdminOrders from "@/pages/AdminOrders";
 import AdminReviews from "@/pages/AdminReviews";
-import AdminMessages from "@/pages/AdminMessages";
 import AdminSettings from "@/pages/AdminSettings";
 import AdminAssistants from "@/pages/AdminAssistants";
 import AssistantWorkspace from "@/pages/AssistantWorkspace";
 import AssistantInviteAccept from "@/pages/AssistantInviteAccept";
+import useAdminOrderNotifications from "@/lib/useAdminOrderNotifications";
 
 function LoadingScreen() {
   return (
@@ -90,7 +90,17 @@ function AdminProtectedRoute({ children }) {
     );
   }
 
-  return children;
+  return (
+    <>
+      <AdminOrderNotificationListener />
+      {children}
+    </>
+  );
+}
+
+function AdminOrderNotificationListener() {
+  useAdminOrderNotifications();
+  return null;
 }
 
 function AssistantProtectedRoute({ children }) {
@@ -181,15 +191,6 @@ function AppRoutes() {
         element={
           <AdminProtectedRoute>
             <AdminReviews />
-          </AdminProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/messages"
-        element={
-          <AdminProtectedRoute>
-            <AdminMessages />
           </AdminProtectedRoute>
         }
       />

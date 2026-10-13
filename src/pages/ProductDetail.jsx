@@ -91,11 +91,7 @@ export default function ProductDetail() {
           {/* Images */}
           <div>
             <div className="relative aspect-square bg-london overflow-hidden mb-4">
-              {images.length > 0 ? (
-                <Image src={images[activeImage]} alt={product.name} className="w-full h-full object-cover" fittingType="fill" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground">No image</div>
-              )}
+              <Image src={images[activeImage]} alt={product.name} className="w-full h-full object-cover" fittingType="fill" />
               {onSale && (
                 <span className="absolute top-4 left-4 bg-pink text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5">Sale</span>
               )}

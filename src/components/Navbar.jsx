@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
-  Bell,
   Cookie,
   Menu,
   Package,
@@ -94,13 +93,13 @@ export default function Navbar() {
     { label: "Delivery", path: "/delivery" },
     { label: "About", path: "/about" },
     { label: "Contact", path: "/contact" },
+    { label: "My Orders", path: "/my-orders" },
   ];
 
   // Shown in the mobile menu only; on desktop these live in the footer.
   const secondaryLinks = [
     { label: "Wholesale", path: "/wholesale" },
     { label: "Track Order", path: "/track-order" },
-    { label: "My Orders", path: "/my-orders" },
   ];
 
   const CATEGORY_ICONS = {
@@ -131,12 +130,18 @@ export default function Navbar() {
   return (
     <>
       {/* Announcement bar */}
-      <div className="bg-carbon text-white">
-        <p className="mx-auto max-w-7xl px-4 py-2 text-center text-[11px] font-medium uppercase tracking-wider">
-          Original UK-Sourced Products
-          <span className="mx-2 text-pink">◆</span>
-          Delivered Across Ghana
-        </p>
+      <div className="overflow-hidden bg-carbon text-white" aria-label="Store highlights">
+        <div className="announcement-track flex w-max py-2 text-[11px] font-medium uppercase tracking-wider">
+          {[0, 1].map((copy) => (
+            <div key={copy} aria-hidden={copy === 1} className="flex shrink-0 items-center gap-6 px-5 sm:gap-10 sm:px-8">
+              {["Original UK-Sourced Products", "Delivered Across Ghana", "Stay Plugged In", "Authenticity Guaranteed"].map((item) => (
+                <span key={item} className="inline-flex items-center gap-6 sm:gap-10">
+                  {item}<span className="text-pink" aria-hidden="true">◆</span>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
 
       <header
@@ -198,14 +203,6 @@ export default function Navbar() {
               </button>
 
               <Link
-                to="/my-orders"
-                className="relative rounded-md p-2 transition-colors hover:bg-london"
-                aria-label="My Orders & Notifications"
-              >
-                <Bell className="h-5 w-5" />
-              </Link>
-
-              <Link
                 to="/cart"
                 className="relative rounded-md p-2 transition-colors hover:bg-london"
                 aria-label="Cart"
@@ -230,7 +227,12 @@ export default function Navbar() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
+                <label htmlFor="site-search" className="sr-only">
+                  Search products
+                </label>
                 <input
+                  id="site-search"
+                  name="search"
                   autoFocus
                   type="text"
                   value={searchQuery}

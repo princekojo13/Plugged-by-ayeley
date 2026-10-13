@@ -1,5 +1,4 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-
 const allowedOrigins = new Set([
   "https://pluggedbyayeley.com",
   "https://www.pluggedbyayeley.com",
@@ -8,12 +7,14 @@ const allowedOrigins = new Set([
   "http://localhost:5174",
   "http://localhost:4173",
 ]);
+const pbaOrderNumberPattern = /^PBA-(?:[A-F0-9]{5}-[A-F0-9]{5}|[A-F0-9]{8}-[A-F0-9]{8})$/;
 
 function headersFor(origin: string | null) {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers":
       "authorization, apikey, x-client-info, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Cache-Control": "no-store",
     "Content-Type": "application/json",
     "Vary": "Origin",
   };
@@ -62,19 +63,15 @@ Deno.serve(async (req: Request) => {
     try {
       body = asRecord(await req.json());
     } catch {
-      return respond({ success: false, error: "Enter a valid order number and checkout contact." }, 400, headers);
+      return respond({ success: false, error: "Enter your PBA order number." }, 400, headers);
     }
     const orderNumber = typeof body.order_number === "string"
       ? body.order_number.trim().toUpperCase()
       : "";
-    const contact = typeof body.contact === "string"
-      ? body.contact.trim()
-      : "";
-
-    if (orderNumber.length < 6 || orderNumber.length > 40 || contact.length < 5 || contact.length > 254) {
+    if (!pbaOrderNumberPattern.test(orderNumber)) {
       return respond({
         success: false,
-        error: "Enter your order number and checkout email or phone number.",
+        error: "Enter a valid PBA order number.",
       }, 400, headers);
     }
 
@@ -91,7 +88,6 @@ Deno.serve(async (req: Request) => {
 
     const { data, error } = await supabase.rpc("track_order", {
       p_order_number: orderNumber,
-      p_contact: contact,
     });
 
     if (error) {
@@ -111,43 +107,19 @@ Deno.serve(async (req: Request) => {
     if (!result.order_number) {
       return respond({
         success: false,
-        error: "We couldn't find an order with those details. Check the order number and checkout email or phone.",
+        error: "We couldn't find an order with that PBA order number. Check the code and try again.",
       }, 404, headers);
     }
 
-    // Explicitly whitelist the customer-safe fields returned after contact verification.
-    const items = Array.isArray(result.items)
-      ? result.items.map((item) => {
-        const entry = asRecord(item);
-        return {
-          name: entry.name,
-          price: entry.price,
-          quantity: entry.quantity,
-          line_total: entry.line_total,
-        };
-      })
-      : [];
-
+    // Keep code-only tracking limited to delivery status and broad region.
     return respond({
       success: true,
       order: {
         order_number: result.order_number,
         order_status: result.order_status,
         status: result.order_status,
-        payment_status: result.payment_status,
-        payment_method: result.payment_method,
         created_at: result.created_at,
-        paid_at: result.paid_at,
         delivery_region: result.delivery_region,
-        delivery_address: result.delivery_address,
-        delivery_lat: result.delivery_lat,
-        delivery_lng: result.delivery_lng,
-        distance_km: result.distance_km,
-        subtotal: result.subtotal,
-        delivery_fee: result.delivery_fee,
-        total: result.total,
-        currency: result.currency,
-        items,
       },
     }, 200, headers);
   } catch (error) {

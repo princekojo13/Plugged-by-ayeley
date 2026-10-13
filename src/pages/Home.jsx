@@ -123,6 +123,9 @@ export default function Home() {
       )
       .slice(0, 8),
   };
+  const catalogEmpty =
+    !offerCandidates.loading &&
+    offerCandidates.products.length === 0;
 
   const { brand_name: brandName } = useStoreSettings();
 
@@ -157,18 +160,18 @@ export default function Home() {
 
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Link
-                  to="/shop"
+                  to={catalogEmpty ? "/contact" : "/shop"}
                   className="inline-flex items-center justify-center gap-2 bg-pink px-8 py-4 text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-white hover:text-carbon"
                 >
-                  Shop Now
+                  {catalogEmpty ? "Contact Us" : "Shop Now"}
                   <ArrowRight className="h-4 w-4" />
                 </Link>
 
                 <Link
-                  to="/special-offers"
+                  to={catalogEmpty ? "/delivery" : "/special-offers"}
                   className="inline-flex items-center justify-center gap-2 border border-white/30 px-8 py-4 text-sm font-bold uppercase tracking-wider text-white transition-colors hover:border-pink hover:text-pink"
                 >
-                  Special Offers
+                  {catalogEmpty ? "Delivery Information" : "Special Offers"}
                 </Link>
               </div>
 
@@ -204,7 +207,7 @@ export default function Home() {
       </section>
 
       {/* CATEGORIES */}
-      <section className="bg-white py-16 sm:py-20">
+      {(offerCandidates.loading || offerCandidates.products.length > 0) && <section className="bg-white py-16 sm:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <SectionHeader
             title="Shop by Category"
@@ -236,10 +239,37 @@ export default function Home() {
             })}
           </div>
         </div>
-      </section>
+      </section>}
+
+      {catalogEmpty && (
+        <section className="border-y border-border bg-london/40 py-12 sm:py-16">
+          <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-pink">
+              {offerCandidates.error ? "Collection unavailable" : "Collection update"}
+            </p>
+            <h2 className="font-heading text-2xl font-bold text-carbon sm:text-3xl">
+              {offerCandidates.error
+                ? "We’re having trouble loading the collection"
+                : "We’re updating our collection"}
+            </h2>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+              {offerCandidates.error
+                ? "Please refresh the page, or contact us if you need help."
+                : "Please check back soon, or contact us if you’re looking for a particular product."}
+            </p>
+            <Link
+              to="/contact"
+              className="mt-6 inline-flex items-center gap-2 bg-carbon px-6 py-3 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-pink"
+            >
+              Contact Us
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </section>
+      )}
 
       {/* FEATURED */}
-      <section className="bg-london/50 py-16 sm:py-20">
+      {(featured.loading || featured.products.length > 0) && <section className="bg-london/50 py-16 sm:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <SectionHeader
             title="Featured Products"
@@ -253,7 +283,7 @@ export default function Home() {
             emptyMessage="Featured products will appear here soon."
           />
         </div>
-      </section>
+      </section>}
 
       {/* UK SOURCED STORY */}
       <section className="bg-carbon py-16 text-white sm:py-24">
@@ -337,7 +367,7 @@ export default function Home() {
       </section>
 
       {/* BEST SELLERS */}
-      <section className="bg-white py-16 sm:py-20">
+      {(bestSellers.loading || bestSellers.products.length > 0) && <section className="bg-white py-16 sm:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <SectionHeader
             title="Best Sellers"
@@ -351,10 +381,10 @@ export default function Home() {
             emptyMessage="Best sellers will appear here soon."
           />
         </div>
-      </section>
+      </section>}
 
       {/* SPECIAL OFFERS */}
-      <section className="bg-london/50 py-16 sm:py-20">
+      {(specialOffers.loading || specialOffers.products.length > 0) && <section className="bg-london/50 py-16 sm:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <SectionHeader
             title="Special Offers"
@@ -368,10 +398,10 @@ export default function Home() {
             emptyMessage="There are no special offers right now."
           />
         </div>
-      </section>
+      </section>}
 
       {/* NEW ARRIVALS */}
-      <section className="bg-white py-16 sm:py-20">
+      {(newArrivals.loading || newArrivals.products.length > 0) && <section className="bg-white py-16 sm:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <SectionHeader
             title="New Arrivals"
@@ -385,7 +415,7 @@ export default function Home() {
             emptyMessage="New arrivals will appear here soon."
           />
         </div>
-      </section>
+      </section>}
 
       {/* WHOLESALE */}
       <section className="border-y border-border bg-white py-10">
@@ -425,21 +455,22 @@ export default function Home() {
           </p>
 
           <h2 className="mb-6 font-heading text-3xl font-bold text-balance sm:text-5xl">
-            Ready to shop authentic
-            <br />
-            UK-sourced products?
+            {catalogEmpty
+              ? "Looking for a particular product?"
+              : <>Ready to shop authentic<br />UK-sourced products?</>}
           </h2>
 
           <p className="mx-auto mb-8 max-w-xl text-white/60">
-            Browse our full catalogue and have your favourites delivered
-            anywhere in Ghana.
+            {catalogEmpty
+              ? "Get in touch and we’ll help you find what you need."
+              : "Browse our full catalogue and have your favourites delivered anywhere in Ghana."}
           </p>
 
           <Link
-            to="/shop"
+            to={catalogEmpty ? "/contact" : "/shop"}
             className="inline-flex items-center gap-2 bg-pink px-10 py-4 text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-white hover:text-carbon"
           >
-            View Products
+            {catalogEmpty ? "Contact Us" : "View Products"}
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

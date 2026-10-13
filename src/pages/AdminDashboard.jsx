@@ -5,7 +5,7 @@ import {
   BarChart3,
   Clock3,
   CreditCard,
-  MessageSquare,
+  LogOut,
   Package,
   RefreshCw,
   Settings,
@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/lib/AuthContext";
 
 function formatGhs(value) {
   return new Intl.NumberFormat("en-GH", {
@@ -64,11 +65,10 @@ function formatOrderStatus(status) {
 }
 
 export default function AdminDashboard() {
+  const { logout } = useAuth();
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [reviews, setReviews] = useState([]);
-  const [contacts, setContacts] = useState([]);
-  const [wholesale, setWholesale] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -89,8 +89,6 @@ export default function AdminDashboard() {
           productsResult,
           ordersResult,
           reviewsResult,
-          contactsResult,
-          wholesaleResult,
         ] = await Promise.all([
           supabase
             .from("products")
@@ -117,29 +115,12 @@ export default function AdminDashboard() {
               ascending: false,
             }),
 
-          supabase
-            .from("contact_messages")
-            .select("id,name,email,message,created_at")
-            .order("created_at", {
-              ascending: false,
-            }),
-
-          supabase
-            .from("wholesale_inquiries")
-            .select(
-              "id,business_name,contact_name:name,email,message,created_at"
-            )
-            .order("created_at", {
-              ascending: false,
-            }),
         ]);
 
         const errors = [
           productsResult.error,
           ordersResult.error,
           reviewsResult.error,
-          contactsResult.error,
-          wholesaleResult.error,
         ].filter(Boolean);
 
         if (errors.length > 0) {
@@ -149,8 +130,6 @@ export default function AdminDashboard() {
         setProducts(productsResult.data || []);
         setOrders(ordersResult.data || []);
         setReviews(reviewsResult.data || []);
-        setContacts(contactsResult.data || []);
-        setWholesale(wholesaleResult.data || []);
       } catch (err) {
         console.error("Failed to load admin dashboard:", err);
 
@@ -167,6 +146,12 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const refreshForNewOrder = () => void loadDashboard(true);
+    window.addEventListener("admin:order-inserted", refreshForNewOrder);
+    return () => window.removeEventListener("admin:order-inserted", refreshForNewOrder);
   }, [loadDashboard]);
 
   const paidValue = orders
@@ -195,7 +180,6 @@ export default function AdminDashboard() {
     (review) => !review.approved
   ).length;
 
-  const totalMessages = contacts.length + wholesale.length;
 
   const recentOrders = orders.slice(0, 5);
   const recentReviews = reviews.slice(0, 4);
@@ -220,19 +204,30 @@ export default function AdminDashboard() {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => loadDashboard(true)}
-              disabled={refreshing}
-              className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#ff1f8f] hover:text-[#ff1f8f] disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${
-                  refreshing ? "animate-spin" : ""
-                }`}
-              />
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-red-300 hover:text-red-600"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </button>
+
+              <button
+                type="button"
+                onClick={() => loadDashboard(true)}
+                disabled={refreshing}
+                className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#ff1f8f] hover:text-[#ff1f8f] disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${
+                    refreshing ? "animate-spin" : ""
+                  }`}
+                />
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -258,9 +253,9 @@ export default function AdminDashboard() {
               <StatCard
                 icon={<ShoppingBag className="h-5 w-5" />}
                 label="Total Orders"
-                value={orders.length}
+                value={error ? "—" : orders.length}
                 note={
-                  [
+                  error ? "Data unavailable" : [
                     pendingOrders > 0
                       ? `${pendingOrders} order${pendingOrders === 1 ? "" : "s"} need attention`
                       : null,
@@ -275,15 +270,15 @@ export default function AdminDashboard() {
               <StatCard
                 icon={<BarChart3 className="h-5 w-5" />}
                 label="Paid Value"
-                value={formatGhs(paidValue)}
-                note="Orders marked paid only"
+                value={error ? "—" : formatGhs(paidValue)}
+                note={error ? "Data unavailable" : "Paid status; cancellations stay included until refunded"}
               />
 
               <StatCard
                 icon={<Package className="h-5 w-5" />}
                 label="Products"
-                value={products.length}
-                note={
+                value={error ? "—" : products.length}
+                note={error ? "Data unavailable" :
                   lowStockProducts > 0
                     ? `${lowStockProducts} low stock`
                     : "Stock looks good"
@@ -291,10 +286,10 @@ export default function AdminDashboard() {
               />
 
               <StatCard
-                icon={<MessageSquare className="h-5 w-5" />}
-                label="Messages"
-                value={totalMessages}
-                note={`${pendingReviews} reviews pending`}
+                icon={<Star className="h-5 w-5" />}
+                label="Reviews to approve"
+                value={error ? "—" : pendingReviews}
+                note={error ? "Data unavailable" : `${reviews.length} customer reviews total`}
               />
             </section>
 
@@ -314,7 +309,7 @@ export default function AdminDashboard() {
                 </p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
                 <ManagementCard
                   href="/admin/products"
                   icon={<Package className="h-6 w-6" />}
@@ -351,14 +346,6 @@ export default function AdminDashboard() {
                       ? `${pendingReviews} waiting`
                       : "All approved"
                   }
-                />
-
-                <ManagementCard
-                  href="/admin/messages"
-                  icon={<MessageSquare className="h-6 w-6" />}
-                  title="Messages"
-                  description="Read customer and wholesale enquiries."
-                  badge={`${totalMessages} total`}
                 />
 
                 <ManagementCard

@@ -43,6 +43,7 @@ export default function AdminProducts() {
   const [categoryFilter, setCategoryFilter] = useState("all");
 
   const [error, setError] = useState("");
+  const [dataLoadError, setDataLoadError] = useState("");
 
   const loadProducts = useCallback(
     async (manual = false) => {
@@ -53,6 +54,7 @@ export default function AdminProducts() {
       }
 
       setError("");
+      setDataLoadError("");
 
       try {
         const { data, error: queryError } =
@@ -68,18 +70,17 @@ export default function AdminProducts() {
         }
 
         setProducts(data || []);
+        setDataLoadError("");
       } catch (err) {
         console.error(
           "Failed to load products:",
           err
         );
 
-        setProducts([]);
-
-        setError(
-          err?.message ||
-            "Could not load products."
-        );
+        const message = err?.message || "Could not load products.";
+        if (!manual) setProducts([]);
+        setDataLoadError(message);
+        setError(message);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -378,8 +379,8 @@ export default function AdminProducts() {
               <Package className="h-5 w-5" />
             }
             label="Total Products"
-            value={totalProducts}
-            note={`${activeProducts} active`}
+            value={loading ? "…" : dataLoadError ? "—" : totalProducts}
+            note={loading ? "Loading…" : dataLoadError ? "Unavailable" : `${activeProducts} active`}
           />
 
           <StatCard
@@ -387,8 +388,8 @@ export default function AdminProducts() {
               <CheckCircle2 className="h-5 w-5" />
             }
             label="Active"
-            value={activeProducts}
-            note="Visible in shop"
+            value={loading ? "…" : dataLoadError ? "—" : activeProducts}
+            note={loading ? "Loading…" : dataLoadError ? "Unavailable" : "Visible in shop"}
             pink
           />
 
@@ -397,8 +398,8 @@ export default function AdminProducts() {
               <Archive className="h-5 w-5" />
             }
             label="Low Stock"
-            value={lowStockProducts}
-            note="Needs attention"
+            value={loading ? "…" : dataLoadError ? "—" : lowStockProducts}
+            note={loading ? "Loading…" : dataLoadError ? "Unavailable" : "Needs attention"}
           />
 
           <StatCard
@@ -406,8 +407,8 @@ export default function AdminProducts() {
               <XCircle className="h-5 w-5" />
             }
             label="Out of Stock"
-            value={outOfStockProducts}
-            note={`${hiddenProducts} hidden`}
+            value={loading ? "…" : dataLoadError ? "—" : outOfStockProducts}
+            note={loading ? "Loading…" : dataLoadError ? "Unavailable" : `${hiddenProducts} hidden`}
           />
         </section>
 
@@ -488,11 +489,11 @@ export default function AdminProducts() {
             <p className="text-sm text-black/45">
               Showing{" "}
               <span className="font-semibold text-black">
-                {filteredProducts.length}
+                {loading ? "…" : dataLoadError ? "—" : filteredProducts.length}
               </span>{" "}
               of{" "}
               <span className="font-semibold text-black">
-                {products.length}
+                {loading ? "…" : dataLoadError ? "—" : products.length}
               </span>{" "}
               products
             </p>
@@ -513,6 +514,10 @@ export default function AdminProducts() {
         <section className="mt-6 overflow-hidden rounded-2xl border border-black/[0.07] bg-white shadow-sm">
           {loading ? (
             <LoadingState />
+          ) : dataLoadError ? (
+            <div className="flex min-h-[300px] items-center justify-center px-6 text-center text-sm text-black/45">
+              Products could not be loaded. Use Refresh to try again.
+            </div>
           ) : filteredProducts.length === 0 ? (
             <EmptyState
               hasFilters={hasFilters}

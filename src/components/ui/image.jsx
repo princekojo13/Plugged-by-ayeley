@@ -1,8 +1,8 @@
 import * as React from "react";
+import fallbackImage from "@/assets/product-placeholder.svg";
 import { cn } from "@/lib/utils";
 
-const FALLBACK_IMAGE_URL =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600' viewBox='0 0 800 600'%3E%3Crect width='800' height='600' fill='%23f3f4f6'/%3E%3Cpath d='M240 430l120-140 90 100 70-80 140 120H240z' fill='%23d1d5db'/%3E%3Ccircle cx='520' cy='220' r='45' fill='%23d1d5db'/%3E%3C/svg%3E";
+const FALLBACK_IMAGE_URL = fallbackImage;
 
 const Image = React.forwardRef(
   (

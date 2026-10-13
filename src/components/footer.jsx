@@ -131,23 +131,17 @@ export default function Footer() {
               </li>
 
               <li>
-                <a
-                  href={`tel:${settings.phone}`}
-                  className="inline-flex items-center gap-2 transition-colors hover:text-pink"
-                >
+                <span className="inline-flex items-center gap-2">
                   <Phone className="h-4 w-4" />
                   {settings.phone}
-                </a>
+                </span>
               </li>
 
               <li>
-                <a
-                  href={`mailto:${settings.email}`}
-                  className="inline-flex items-center gap-2 break-all transition-colors hover:text-pink"
-                >
+                <span className="inline-flex items-center gap-2 break-all">
                   <Mail className="h-4 w-4 shrink-0" />
                   {settings.email}
-                </a>
+                </span>
               </li>
             </ul>
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Search,
@@ -10,8 +10,9 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import OrderTrackMap from "@/components/OrderTrackMap";
 import { cn } from "@/lib/utils";
+
+const PBA_ORDER_NUMBER = /^PBA-(?:[A-F0-9]{5}-[A-F0-9]{5}|[A-F0-9]{8}-[A-F0-9]{8})$/;
 
 const STATUS_STEPS = [
   { key: "pending", label: "Order Placed", icon: Clock },
@@ -32,11 +33,6 @@ const STATUS_STEP_INDEX = {
   delivered: 5,
 };
 
-function money(value) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
-}
-
 function formatDate(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -47,21 +43,27 @@ function formatDate(value) {
 
 export default function TrackOrder() {
   const [params] = useSearchParams();
+  const orderParam = params.get("order") || "";
+  const orderNumberFromLink = Boolean(orderParam);
 
   const [trackingValue, setTrackingValue] = useState(
-    () => params.get("order") || ""
+    () => orderParam
   );
-  const [contactValue, setContactValue] = useState("");
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const runTrack = async (value, contact) => {
-    const query = value.trim();
-    const customerContact = contact.trim();
+  useEffect(() => {
+    setTrackingValue(orderParam);
+    setOrder(null);
+    setError("");
+  }, [orderParam]);
 
-    if (!query || !customerContact) {
-      setError("Enter your order number and the email address or phone number used at checkout.");
+  const runTrack = async (value) => {
+    const query = value.trim().toUpperCase();
+
+    if (!PBA_ORDER_NUMBER.test(query)) {
+      setError("Enter the PBA order number shown in your confirmation.");
       return;
     }
 
@@ -74,12 +76,21 @@ export default function TrackOrder() {
         await supabase.functions.invoke("track-order", {
           body: {
             order_number: query,
-            contact: customerContact,
           },
         });
 
       if (functionError) {
-        throw functionError;
+        let serverMessage = "";
+        const response = functionError.context;
+        if (response && typeof response.json === "function") {
+          try {
+            const body = await response.clone().json();
+            serverMessage = body?.error || "";
+          } catch {
+            // Use the SDK error message when the function response isn't JSON.
+          }
+        }
+        throw new Error(serverMessage || functionError.message);
       }
 
       if (!data?.success || !data?.order) {
@@ -92,9 +103,7 @@ export default function TrackOrder() {
       });
     } catch (err) {
       console.error("Order tracking error:", err);
-      setError(
-        "We couldn't find an order with those details. Check the order number and checkout email or phone."
-      );
+      setError(err?.message || "We couldn't find an order with that PBA order number.");
     } finally {
       setLoading(false);
     }
@@ -102,7 +111,7 @@ export default function TrackOrder() {
 
   const handleTrack = async (event) => {
     event.preventDefault();
-    await runTrack(trackingValue, contactValue);
+    await runTrack(trackingValue);
   };
 
   const currentStepIndex = order
@@ -124,46 +133,40 @@ export default function TrackOrder() {
           </h1>
 
           <p className="text-white/60 text-sm">
-            Enter your Order Number and the email address or phone number used at checkout.
+            {orderNumberFromLink
+              ? "Your PBA order number is ready. Press Enter or Track to view its latest status."
+              : "Enter the PBA order number from your confirmation to view its latest status."}
           </p>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-10">
-        <form onSubmit={handleTrack} className="mb-8 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <form onSubmit={handleTrack} className="mb-8 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="relative flex-1">
+            <label htmlFor="tracking-order-number" className="sr-only">
+              PBA order number
+            </label>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
 
             <input
+              id="tracking-order-number"
+              name="order_number"
               type="text"
+              maxLength={21}
               value={trackingValue}
               onChange={(event) => {
-                setTrackingValue(event.target.value);
+                setTrackingValue(event.target.value.toUpperCase());
                 setOrder(null);
                 setError("");
               }}
-              placeholder="Order Number"
+              placeholder="PBA-1A2B3-4C5D6"
               autoComplete="off"
-              aria-label="Order number"
+              autoCapitalize="characters"
+              spellCheck={false}
               required
               className="w-full pl-10 pr-4 py-3 bg-white border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink"
             />
           </div>
-
-          <input
-            type="text"
-            value={contactValue}
-            onChange={(event) => {
-              setContactValue(event.target.value);
-              setOrder(null);
-              setError("");
-            }}
-            placeholder="Checkout email or phone"
-            autoComplete="off"
-            aria-label="Email address or phone number used at checkout"
-            required
-            className="w-full rounded-md border border-border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-pink"
-          />
 
           <button
             type="submit"
@@ -194,15 +197,6 @@ export default function TrackOrder() {
                   </p>
                 </div>
 
-                <div className="text-right">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Total
-                  </p>
-
-                  <p className="font-heading font-bold text-lg text-carbon">
-                    ₵{money(order.total)}
-                  </p>
-                </div>
               </div>
 
               {isCancelled ? (
@@ -275,74 +269,6 @@ export default function TrackOrder() {
               )}
             </div>
 
-            <OrderTrackMap order={order} />
-
-            {Array.isArray(order.items) && order.items.length > 0 && (
-              <div className="border border-border p-6">
-                <h3 className="font-heading font-bold text-carbon mb-4">
-                  Order Details
-                </h3>
-
-                <div className="space-y-3 mb-4">
-                  {order.items.map((item, index) => (
-                    <div
-                      key={item.id || index}
-                      className="flex items-center gap-3"
-                    >
-                      <div className="w-12 h-12 bg-london rounded overflow-hidden shrink-0 flex items-center justify-center">
-                        <Package className="w-5 h-5 text-muted-foreground" />
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-carbon truncate">
-                          {item.product_name || item.name || "Product"}
-                        </p>
-
-                        <p className="text-xs text-muted-foreground">
-                          Qty: {item.quantity || 0}
-                        </p>
-                      </div>
-
-                      <p className="text-sm font-semibold text-carbon">
-                        ₵{money(
-                          item.line_total ??
-                            Number(item.unit_price || item.price || 0) *
-                              Number(item.quantity || 0)
-                        )}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="border-t border-border pt-4 space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Subtotal
-                    </span>
-
-                    <span className="font-medium">
-                      ₵{money(order.subtotal)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Delivery Fee
-                    </span>
-
-                    <span className="font-medium">
-                      ₵{money(order.delivery_fee)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between font-bold text-carbon pt-1.5">
-                    <span>Total</span>
-                    <span>₵{money(order.total)}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div className="border border-border p-6">
               <h3 className="font-heading font-bold text-carbon mb-4">
                 Delivery Information
@@ -357,47 +283,6 @@ export default function TrackOrder() {
                     <span className="font-medium text-carbon">
                       {order.delivery_region}
                     </span>
-                  </p>
-                )}
-
-                {order.delivery_address && (
-                  <p>
-                    <span className="text-muted-foreground">
-                      Address:
-                    </span>{" "}
-                    <span className="font-medium text-carbon">
-                      {order.delivery_address}
-                    </span>
-                  </p>
-                )}
-
-                {order.payment_method && (
-                  <p>
-                    <span className="text-muted-foreground">
-                      Payment method:
-                    </span>{" "}
-                    <span className="font-medium text-carbon">
-                      {order.payment_method === "paystack"
-                        ? "Paystack"
-                        : "Pay on Delivery"}
-                    </span>
-                  </p>
-                )}
-
-                {order.payment_status && (
-                  <p>
-                    <span className="text-muted-foreground">
-                      Payment status:
-                    </span>{" "}
-                    <span className={`font-medium ${order.payment_status === "paid" ? "text-emerald-700" : "text-carbon"}`}>
-                      {order.payment_status.replaceAll("_", " ")}
-                    </span>
-                  </p>
-                )}
-
-                {order.payment_status === "paid" && order.paid_at && formatDate(order.paid_at) && (
-                  <p className="text-emerald-700">
-                    Payment received: {formatDate(order.paid_at)}
                   </p>
                 )}
               </div>
@@ -420,11 +305,13 @@ export default function TrackOrder() {
             <Package className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
 
             <p className="text-muted-foreground">
-              Enter your Order Number and checkout email or phone number to track your shipment.
+              {orderNumberFromLink
+                ? "Press Enter to view the order connected to this link."
+                : "Enter your PBA order number to track your shipment."}
             </p>
 
             <p className="text-xs text-muted-foreground/60 mt-2">
-              Your Order Number is shown in your order confirmation.
+              Your PBA order number is shown in your order confirmation.
             </p>
           </div>
         )}

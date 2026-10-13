@@ -11,12 +11,14 @@ function StarRating({
   onChange,
   size = "h-5 w-5",
   label = "Rating",
+  labelledBy,
 }) {
   return (
     <div
       className="flex gap-1"
       role={onChange ? "radiogroup" : undefined}
-      aria-label={label}
+      aria-label={labelledBy ? undefined : label}
+      aria-labelledby={labelledBy}
     >
       {[1, 2, 3, 4, 5].map((star) => {
         const active = star <= Number(value || 0);
@@ -301,12 +303,13 @@ export default function ReviewSection({ productId }) {
           ) : (
             <>
               <div className="mb-4">
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-carbon">
+                <span id="review-rating-label" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-carbon">
                   Your Rating
-                </label>
+                </span>
 
                 <StarRating
                   value={form.rating}
+                  labelledBy="review-rating-label"
                   onChange={(value) =>
                     setField("rating", value)
                   }
@@ -314,11 +317,13 @@ export default function ReviewSection({ productId }) {
               </div>
 
               <div className="mb-4">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
+                <label htmlFor="review-customer-name" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
                   Name *
                 </label>
 
                 <input
+                  id="review-customer-name"
+                  name="customer_name"
                   type="text"
                   value={form.customer_name}
                   onChange={(event) =>
@@ -336,11 +341,13 @@ export default function ReviewSection({ productId }) {
               </div>
 
               <div className="mb-4">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
+                <label htmlFor="review-comment" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-carbon">
                   Comment *
                 </label>
 
                 <textarea
+                  id="review-comment"
+                  name="review"
                   value={form.review}
                   onChange={(event) =>
                     setField(

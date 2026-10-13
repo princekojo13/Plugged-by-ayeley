@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none">
+  <defs>
+    <linearGradient id="background" x1="72" y1="40" x2="728" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8FC"/>
+      <stop offset="1" stop-color="#F5EAF0"/>
+    </linearGradient>
+    <linearGradient id="box" x1="287" y1="270" x2="513" y2="540" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF"/>
+      <stop offset="1" stop-color="#FFF4F9"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#background)"/>
+  <circle cx="400" cy="365" r="188" fill="#FF1F8F" fill-opacity=".06"/>
+  <rect x="284" y="246" width="232" height="276" rx="24" fill="url(#box)" stroke="#E7CAD9" stroke-width="4"/>
+  <path d="M284 326h232M400 326v192" stroke="#E7CAD9" stroke-width="4"/>
+  <path d="m284 326 116 64 116-64" stroke="#E7CAD9" stroke-width="4" stroke-linejoin="round"/>
+  <path d="m400 390 116-64v172a24 24 0 0 1-24 24h-92V390Z" fill="#FF1F8F" fill-opacity=".08"/>
+  <path d="m400 390-116-64v172a24 24 0 0 0 24 24h92V390Z" fill="#202024" fill-opacity=".035"/>
+  <path d="m400 285 35 23v39l-35 23-35-23v-39l35-23Z" fill="#FF1F8F" fill-opacity=".13" stroke="#FF1F8F" stroke-width="4" stroke-linejoin="round"/>
+  <path d="m365 308 35 22 35-22M400 330v40" stroke="#FF1F8F" stroke-width="4" stroke-linejoin="round"/>
+  <text x="400" y="603" fill="#222226" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="4" text-anchor="middle">PLUGGED BY AYELEY</text>
+  <text x="400" y="642" fill="#8B7782" font-family="Arial, sans-serif" font-size="18" letter-spacing="2" text-anchor="middle">PRODUCT PHOTO COMING SOON</text>
+  <rect x="282" y="680" width="236" height="3" rx="1.5" fill="#FF1F8F" fill-opacity=".3"/>
+</svg>

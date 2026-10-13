@@ -1,0 +1,16 @@
+project_id = "mndwsmvfcjjrqpanzdkn"
+
+[functions.verify-paystack]
+verify_jwt = false
+
+[functions.paystack-webhook]
+verify_jwt = false
+
+[functions.store-assistant]
+verify_jwt = false
+
+[functions.request-guest-orders-link]
+verify_jwt = false
+
+[functions.customer-orders]
+verify_jwt = false

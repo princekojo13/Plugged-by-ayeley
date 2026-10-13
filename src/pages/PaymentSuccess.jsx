@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Check, ArrowRight, Phone, Loader2, CircleAlert, XCircle } from "lucide-react";
-import { useStoreSettings } from "@/lib/useStoreSettings";
+import { Check, ArrowRight, Loader2, CircleAlert, XCircle } from "lucide-react";
+import WhatsAppIcon from "@/components/WhatsAppIcon";
+import { useStoreSettings, whatsappLink } from "@/lib/useStoreSettings";
+import { useCart } from "@/lib/cartContext";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function PaymentSuccess() {
   const [params] = useSearchParams();
-  const { phone } = useStoreSettings();
+  const { whatsapp } = useStoreSettings();
+  const { clearCart } = useCart();
   const orderId = params.get("order_id");
   const reference =
     params.get("ref") ||
@@ -33,6 +36,9 @@ export default function PaymentSuccess() {
         if (error) {
           setVerification({ status: "error", orderNumber: "", message: error.message });
         } else if (data?.ok === true) {
+          clearCart();
+          localStorage.setItem("pba_last_order_number", data.order_number || "");
+          localStorage.setItem("pba_has_purchased", "true");
           setVerification({ status: "paid", orderNumber: data.order_number || "", message: "" });
         } else if (data?.reason === "payment_not_successful") {
           const failed = String(data.gateway_status || "").toLowerCase() === "failed";
@@ -50,7 +56,7 @@ export default function PaymentSuccess() {
       });
 
     return () => { active = false; };
-  }, [reference, retry]);
+  }, [reference, retry, clearCart]);
 
   const displayRef = verification.orderNumber || orderId || reference || null;
   const paid = verification.status === "paid";
@@ -96,7 +102,7 @@ export default function PaymentSuccess() {
 
       <div className="bg-london/50 border border-border p-6 mb-8 text-left">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Keep this reference when contacting the store. To track delivery, use your order number together with the email address or phone number entered at checkout. A Paystack redirect alone does not count as payment confirmation.
+          Keep this reference when contacting the store. To track delivery, enter the PBA order number from your confirmation. A Paystack redirect alone does not count as payment confirmation.
         </p>
       </div>
 
@@ -125,11 +131,13 @@ export default function PaymentSuccess() {
         </Link>
 
         <a
-          href={`tel:${phone}`}
+          href={whatsappLink(whatsapp, "Hi Plugged by Ayeley, I need help with my order payment.")}
+          target="_blank"
+          rel="noopener noreferrer"
           className="inline-flex items-center justify-center gap-2 px-8 py-3 border border-carbon font-bold uppercase tracking-wider text-sm hover:bg-carbon hover:text-white transition-colors"
         >
-          <Phone className="w-4 h-4" />
-          Call Us
+          <WhatsAppIcon className="h-4 w-4" />
+          WhatsApp Support
         </a>
       </div>
     </div>

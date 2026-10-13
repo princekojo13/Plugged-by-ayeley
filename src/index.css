@@ -112,6 +112,29 @@
   animation: fade-up 0.6s ease-out both;
 }
 
+@keyframes announcement-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.announcement-track {
+  animation: announcement-scroll 28s linear infinite;
+}
+
+.announcement-track:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .announcement-track {
+    animation: none;
+  }
+
+  .announcement-track > div[aria-hidden="true"] {
+    display: none;
+  }
+}
+
 /* =========================================================
    CHECKOUT INPUT
    ========================================================= */

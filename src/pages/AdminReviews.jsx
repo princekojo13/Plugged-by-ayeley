@@ -51,6 +51,7 @@ export default function AdminReviews() {
   const [filter, setFilter] = useState("all");
 
   const [error, setError] = useState("");
+  const [dataLoadError, setDataLoadError] = useState("");
 
   const loadReviews = useCallback(
     async (manual = false) => {
@@ -61,6 +62,7 @@ export default function AdminReviews() {
       }
 
       setError("");
+      setDataLoadError("");
 
       try {
         const { data, error: queryError } =
@@ -82,18 +84,17 @@ export default function AdminReviews() {
         }
 
         setReviews(data || []);
+        setDataLoadError("");
       } catch (err) {
         console.error(
           "Failed to load reviews:",
           err
         );
 
-        setReviews([]);
-
-        setError(
-          err?.message ||
-            "Could not load reviews."
-        );
+        const message = err?.message || "Could not load reviews.";
+        if (!manual) setReviews([]);
+        setDataLoadError(message);
+        setError(message);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -300,24 +301,26 @@ export default function AdminReviews() {
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Total Reviews"
-            value={reviews.length}
+            value={loading ? "…" : dataLoadError ? "—" : reviews.length}
           />
 
           <StatCard
             label="Approved"
-            value={approvedCount}
+            value={loading ? "…" : dataLoadError ? "—" : approvedCount}
             pink
           />
 
           <StatCard
             label="Pending"
-            value={pendingCount}
+            value={loading ? "…" : dataLoadError ? "—" : pendingCount}
           />
 
           <StatCard
             label="Average Rating"
             value={
-              reviews.length
+              loading || dataLoadError
+                ? "—"
+                : reviews.length
                 ? `${averageRating.toFixed(1)} / 5`
                 : "—"
             }
@@ -365,11 +368,11 @@ export default function AdminReviews() {
           <div className="mt-4 border-t border-black/[0.06] pt-4 text-sm text-black/40">
             Showing{" "}
             <span className="font-semibold text-black">
-              {filteredReviews.length}
+              {loading ? "…" : dataLoadError ? "—" : filteredReviews.length}
             </span>{" "}
             of{" "}
             <span className="font-semibold text-black">
-              {reviews.length}
+              {loading ? "…" : dataLoadError ? "—" : reviews.length}
             </span>{" "}
             reviews
           </div>
@@ -380,6 +383,10 @@ export default function AdminReviews() {
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center rounded-2xl border border-black/[0.07] bg-white">
               <RefreshCw className="h-8 w-8 animate-spin text-[#ff1f8f]" />
+            </div>
+          ) : dataLoadError ? (
+            <div className="flex min-h-[400px] items-center justify-center rounded-2xl border border-black/[0.07] bg-white px-6 text-center text-sm text-black/45">
+              Reviews could not be loaded. Use Refresh to try again.
             </div>
           ) : filteredReviews.length === 0 ? (
             <div className="flex min-h-[400px] flex-col items-center justify-center rounded-2xl border border-black/[0.07] bg-white px-6 text-center shadow-sm">

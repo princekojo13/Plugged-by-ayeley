@@ -32,7 +32,7 @@ const STEPS = [
   {
     icon: PackageCheck,
     title: "Delivered to you",
-    desc: "Track your order with the order number and email or phone used at checkout.",
+    desc: "Track your order with the PBA order number from your confirmation.",
   },
 ];
 
@@ -199,7 +199,7 @@ export default function Delivery() {
           </h2>
 
           <p className="mb-8 text-white/60">
-            Track your order with your order number, or message us on
+            Track your order with your PBA order number, or message us on
             WhatsApp with any delivery questions.
           </p>
 

@@ -1,25 +1,88 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Minus, Plus, Trash2, ShoppingBag, ArrowRight, ArrowLeft } from "lucide-react";
 import { Image } from "@/components/ui/image";
 import { useCart } from "@/lib/cartContext";
+import { supabase } from "@/lib/supabaseClient";
+import { useProducts } from "@/lib/useProducts";
 
 export default function Cart() {
   const { items, updateQuantity, removeFromCart, subtotal } = useCart();
+  const { products: availableProducts, loading: productsLoading } = useProducts({ limit: 1 });
+  const [availabilityNotice, setAvailabilityNotice] = useState("");
+  const [availabilityStatus, setAvailabilityStatus] = useState(
+    () => (items.length ? "checking" : "ready")
+  );
+  const productIdsKey = useMemo(
+    () => [...new Set(items.map((item) => item.product_id).filter(Boolean))].join(","),
+    [items]
+  );
+  const catalogEmpty = !productsLoading && availableProducts.length === 0;
+
+  useEffect(() => {
+    const productIds = productIdsKey ? productIdsKey.split(",") : [];
+    if (!productIds.length) {
+      setAvailabilityStatus("ready");
+      return undefined;
+    }
+
+    let isCurrent = true;
+    setAvailabilityStatus("checking");
+
+    const checkAvailability = async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id")
+        .in("id", productIds)
+        .eq("active", true);
+
+      if (!isCurrent) return;
+      if (error) {
+        setAvailabilityStatus("error");
+        return;
+      }
+
+      const activeIds = new Set((data || []).map((product) => product.id));
+      const unavailableIds = productIds.filter((id) => !activeIds.has(id));
+      if (unavailableIds.length) {
+        unavailableIds.forEach(removeFromCart);
+        setAvailabilityNotice(
+          unavailableIds.length === 1
+            ? "An item that is no longer available was removed from your cart."
+            : "Items that are no longer available were removed from your cart."
+        );
+      }
+      setAvailabilityStatus("ready");
+    };
+
+    checkAvailability();
+    return () => {
+      isCurrent = false;
+    };
+  }, [productIdsKey, removeFromCart]);
 
   if (items.length === 0) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center">
+        {availabilityNotice && (
+          <p role="status" className="mb-6 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            {availabilityNotice}
+          </p>
+        )}
         <div className="w-20 h-20 bg-london rounded-full flex items-center justify-center mx-auto mb-6">
           <ShoppingBag className="w-8 h-8 text-muted-foreground" />
         </div>
         <h1 className="font-heading text-3xl font-bold text-carbon mb-3">Your cart is empty</h1>
-        <p className="text-muted-foreground mb-8">Browse our UK-sourced products and find something you love.</p>
+        <p className="text-muted-foreground mb-8">
+          {catalogEmpty
+            ? "Our collection is being updated. Please check back soon, or contact us for help."
+            : "Browse our UK-sourced products and find something you love."}
+        </p>
         <Link
-          to="/shop"
+          to={catalogEmpty ? "/contact" : "/shop"}
           className="inline-flex items-center gap-2 px-8 py-3.5 bg-carbon text-white font-bold uppercase tracking-wider text-sm hover:bg-pink transition-colors"
         >
-          Shop Now <ArrowRight className="w-4 h-4" />
+          {catalogEmpty ? "Contact Us" : "Shop Now"} <ArrowRight className="w-4 h-4" />
         </Link>
       </div>
     );
@@ -28,6 +91,16 @@ export default function Cart() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <h1 className="font-heading text-3xl sm:text-4xl font-bold text-carbon mb-8">Shopping Cart</h1>
+      {availabilityNotice && (
+        <p role="status" className="mb-6 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          {availabilityNotice}
+        </p>
+      )}
+      {availabilityStatus === "error" && (
+        <p role="alert" className="mb-6 border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          We couldn’t confirm product availability. Refresh the page before checking out.
+        </p>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Items */}
@@ -99,19 +172,32 @@ export default function Cart() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Delivery</span>
-                <span className="text-muted-foreground">Calculated at checkout</span>
+                <span className="text-right text-muted-foreground">Choose a delivery location at checkout</span>
               </div>
             </div>
             <div className="border-t border-border mt-4 pt-4 flex justify-between items-baseline">
-              <span className="font-heading font-bold text-lg text-carbon">Total</span>
+              <span className="font-heading font-bold text-lg text-carbon">Items subtotal</span>
               <span className="font-heading font-bold text-2xl text-carbon">₵{subtotal.toFixed(2)}</span>
             </div>
-            <Link
-              to="/checkout"
-              className="w-full mt-6 py-3.5 bg-pink text-white font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 hover:bg-carbon transition-colors"
-            >
-              Proceed to Checkout <ArrowRight className="w-4 h-4" />
-            </Link>
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Delivery and your full total appear after you choose a delivery location.
+            </p>
+            {availabilityStatus === "ready" ? (
+              <Link
+                to="/checkout"
+                className="w-full mt-6 py-3.5 bg-pink text-white font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 hover:bg-carbon transition-colors"
+              >
+                Proceed to Checkout <ArrowRight className="w-4 h-4" />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="w-full mt-6 py-3.5 bg-carbon/40 text-white font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 cursor-not-allowed"
+              >
+                {availabilityStatus === "checking" ? "Checking items…" : "Checkout unavailable"}
+              </button>
+            )}
             <p className="text-xs text-muted-foreground text-center mt-3">
               Pay with Mobile Money or Pay on Delivery
             </p>

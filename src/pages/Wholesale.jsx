@@ -1,15 +1,9 @@
-import React from "react";
-import {
-  Check,
-  Mail,
-  Package,
-  Phone,
-} from "lucide-react";
+import { Check, Package } from "lucide-react";
 import WhatsAppIcon from "@/components/WhatsAppIcon";
 import { useStoreSettings, whatsappLink } from "@/lib/useStoreSettings";
 
 export default function Wholesale() {
-  const { whatsapp, phone, email } = useStoreSettings();
+  const { whatsapp } = useStoreSettings();
 
   return (
     <div className="bg-white">
@@ -75,38 +69,18 @@ export default function Wholesale() {
                 interested in and roughly how many units you need.
               </p>
 
-              <div className="space-y-3">
-                <a
-                  href={whatsappLink(
-                    whatsapp,
-                    "Hi Plugged by Ayeley, I'd like to make a wholesale enquiry."
-                  )}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex w-full items-center justify-center gap-2 py-3.5 bg-[#25D366] text-white font-bold uppercase tracking-wider text-sm hover:opacity-90 transition-opacity"
-                >
-                  <WhatsAppIcon className="w-4 h-4" />
-                  WhatsApp Us
-                </a>
-
-                <a
-                  href={`tel:${phone}`}
-                  className="flex w-full items-center justify-center gap-2 py-3.5 bg-carbon text-white font-bold uppercase tracking-wider text-sm hover:bg-pink transition-colors"
-                >
-                  <Phone className="w-4 h-4" />
-                  Call {phone}
-                </a>
-
-                <a
-                  href={`mailto:${email}?subject=${encodeURIComponent(
-                    "Wholesale enquiry"
-                  )}`}
-                  className="flex w-full items-center justify-center gap-2 py-3.5 border border-carbon text-carbon font-bold uppercase tracking-wider text-sm hover:bg-carbon hover:text-white transition-colors"
-                >
-                  <Mail className="w-4 h-4" />
-                  Email Us
-                </a>
-              </div>
+              <a
+                href={whatsappLink(
+                  whatsapp,
+                  "Hi Plugged by Ayeley, I'd like to make a wholesale enquiry."
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 bg-[#25D366] py-3.5 text-sm font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90"
+              >
+                <WhatsAppIcon className="h-4 w-4" />
+                Continue on WhatsApp
+              </a>
             </div>
           </div>
         </div>

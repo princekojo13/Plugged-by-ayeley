@@ -1,4 +1,3 @@
-@@ -0,0 +1,3 @@
-# See AGENTS.md
+# Project Notes
 
-Follow the instructions in `AGENTS.md`.
+No additional project-specific agent instructions are defined in this repository.

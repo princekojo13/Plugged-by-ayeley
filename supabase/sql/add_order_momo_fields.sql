@@ -68,7 +68,35 @@ declare
   v_order_id uuid;
   v_momo_number text;
   v_momo_network text;
+  v_store_open boolean;
+  v_maintenance_mode boolean;
+  v_paystack_enabled boolean;
+  v_cod_enabled boolean;
 begin
+  select store_open, maintenance_mode, paystack_enabled, cod_enabled
+  into v_store_open, v_maintenance_mode, v_paystack_enabled, v_cod_enabled
+  from public.store_settings
+  where id = true
+  for share;
+
+  if not found then
+    raise exception 'Checkout settings are temporarily unavailable';
+  end if;
+
+  if not coalesce(v_store_open, false) or coalesce(v_maintenance_mode, true) then
+    raise exception 'The store is currently closed and cannot accept orders';
+  end if;
+
+  if lower(btrim(coalesce(p_payment_method, ''))) = 'paystack'
+    and not coalesce(v_paystack_enabled, false) then
+    raise exception 'Online payment is currently unavailable';
+  end if;
+
+  if lower(btrim(coalesce(p_payment_method, ''))) = 'cash_on_delivery'
+    and not coalesce(v_cod_enabled, false) then
+    raise exception 'Cash on delivery is currently unavailable';
+  end if;
+
   if lower(btrim(coalesce(p_payment_method, ''))) = 'cash_on_delivery' then
     v_momo_number := btrim(coalesce(p_momo_number, ''));
     v_momo_network := btrim(coalesce(p_momo_network, ''));
