@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Package, Search, ShoppingBag, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-const PENDING_ORDER_HISTORY_EMAIL = "plugged_order_history_email";
-const GUEST_ORDER_ACCESS_TOKEN = "plugged_guest_order_access_token";
+const ORDER_HISTORY_EMAIL = "plugged_order_history_email";
 
 function money(value) {
   return new Intl.NumberFormat("en-GH", { style: "currency", currency: "GHS", maximumFractionDigits: 2 }).format(Number(value) || 0);
@@ -19,32 +18,27 @@ function normalizeEmail(value) {
   return value.trim().toLowerCase();
 }
 
-function orderAccessError(error) {
+function orderLookupError(error) {
   const message = error?.message || "";
   if (/rate limit|too many requests/i.test(message)) {
-    return "Too many link requests were made recently. Wait 15 minutes and try again.";
-  }
-  if (/not configured/i.test(message)) {
-    return "Secure order-history email is not set up yet. Please contact the store for help.";
+    return "Too many order lookups were made recently. Wait 15 minutes and try again.";
   }
   if (/failed to send a request to the edge function|function not found|404/i.test(message)) {
-    return "Secure order history is not available yet. Please try again later or contact the store for help.";
+    return "Order history is temporarily unavailable. Please try again later.";
   }
-  return message || "Could not send the secure order-history link. Please try again later.";
+  return message || "Could not load your orders. Please try again later.";
 }
 
 export default function MyOrders() {
-  const [email, setEmail] = useState(() => sessionStorage.getItem(PENDING_ORDER_HISTORY_EMAIL) || "");
-  const [accessToken, setAccessToken] = useState(() => sessionStorage.getItem(GUEST_ORDER_ACCESS_TOKEN) || "");
-  const [linkSent, setLinkSent] = useState(() => Boolean(sessionStorage.getItem(PENDING_ORDER_HISTORY_EMAIL)) && !sessionStorage.getItem(GUEST_ORDER_ACCESS_TOKEN));
+  const [email, setEmail] = useState(() => sessionStorage.getItem(ORDER_HISTORY_EMAIL) || "");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState("");
 
-  const loadOrders = useCallback(async (token) => {
+  const loadOrders = useCallback(async (emailToLookup) => {
     const { data, error: invokeError } = await supabase.functions.invoke("customer-orders", {
-      body: { token },
+      body: { email: emailToLookup },
     });
     if (invokeError) {
       const response = invokeError.context;
@@ -65,84 +59,28 @@ export default function MyOrders() {
     setSearched(true);
   }, []);
 
-  useEffect(() => {
-    const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-    const tokenFromLink = new URLSearchParams(hash).get("guest_order_token");
-    if (tokenFromLink && /^[A-Za-z0-9_-]{43}$/.test(tokenFromLink)) {
-      sessionStorage.setItem(GUEST_ORDER_ACCESS_TOKEN, tokenFromLink);
-      setAccessToken(tokenFromLink);
-    } else if (tokenFromLink) {
-      setError("That secure link is invalid or expired. Request a new one below.");
-    }
-    if (hash.includes("guest_order_token")) {
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!accessToken) return undefined;
-    let active = true;
-    setLoading(true);
-    setError("");
-    setLinkSent(false);
-    loadOrders(accessToken)
-      .catch((lookupError) => {
-        if (!active) return;
-        sessionStorage.removeItem(GUEST_ORDER_ACCESS_TOKEN);
-        setAccessToken("");
-        setError(lookupError.message || "Could not find your orders. Request a new secure link and try again.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
-  }, [accessToken, loadOrders]);
-
-  async function requestOrderAccessLink(emailToRequest) {
+  async function findOrders(event) {
+    event.preventDefault();
+    const normalizedEmail = normalizeEmail(email);
     setLoading(true);
     setError("");
     setOrders([]);
     setSearched(false);
-    const normalizedEmail = normalizeEmail(emailToRequest);
 
     try {
-      const { data, error: requestError } = await supabase.functions.invoke("request-guest-orders-link", {
-        body: { email: normalizedEmail },
-      });
-      if (requestError) {
-        const response = requestError.context;
-        let serverMessage = "";
-        if (response && typeof response.json === "function") {
-          try {
-            const body = await response.clone().json();
-            serverMessage = body?.error || "";
-          } catch {
-            // Fall back to the Supabase function error when the response isn't JSON.
-          }
-        }
-        if (serverMessage) throw new Error(serverMessage);
-        throw requestError;
-      }
-      if (!data?.success) throw new Error(data?.error || "Could not send the secure order-history link.");
-      sessionStorage.setItem(PENDING_ORDER_HISTORY_EMAIL, normalizedEmail);
-      setLinkSent(true);
+      await loadOrders(normalizedEmail);
+      setEmail(normalizedEmail);
+      sessionStorage.setItem(ORDER_HISTORY_EMAIL, normalizedEmail);
     } catch (lookupError) {
-      setError(orderAccessError(lookupError));
+      setError(orderLookupError(lookupError));
     } finally {
       setLoading(false);
     }
   }
 
-  function sendOrderAccessLink(event) {
-    event.preventDefault();
-    void requestOrderAccessLink(email);
-  }
-
   function changeEmail() {
-    sessionStorage.removeItem(PENDING_ORDER_HISTORY_EMAIL);
-    sessionStorage.removeItem(GUEST_ORDER_ACCESS_TOKEN);
-    setAccessToken("");
-    setLinkSent(false);
+    sessionStorage.removeItem(ORDER_HISTORY_EMAIL);
+    setEmail("");
     setOrders([]);
     setSearched(false);
     setError("");
@@ -155,33 +93,22 @@ export default function MyOrders() {
           <Package className="mx-auto mb-5 h-12 w-12 text-pink" />
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.3em] text-pink">Order history</p>
           <h1 className="mb-3 font-heading text-3xl font-bold sm:text-4xl">My Orders</h1>
-          <p className="mx-auto max-w-lg text-sm text-white/65">Enter the email address you used at checkout. We’ll send a secure link so only you can open your order history.</p>
+          <p className="mx-auto max-w-lg text-sm text-white/65">Enter the email address you used at checkout to see your orders.</p>
         </div>
       </div>
 
       <main className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
-        {!accessToken && !linkSent ? (
-          <form onSubmit={sendOrderAccessLink} className="border border-border bg-white p-5 sm:p-7">
-            <label htmlFor="order-history-email" className="mb-2 block text-sm font-semibold text-carbon">Checkout email address</label>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <input id="order-history-email" name="email" type="email" required maxLength={254} autoComplete="email" value={email} onChange={(event) => { sessionStorage.removeItem(PENDING_ORDER_HISTORY_EMAIL); setEmail(event.target.value); setOrders([]); setSearched(false); setError(""); }} placeholder="you@example.com" className="min-w-0 flex-1 rounded-md border border-border px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-pink" />
-              <button type="submit" disabled={loading} className="inline-flex min-h-12 items-center justify-center gap-2 bg-carbon px-6 py-3 text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-pink disabled:opacity-50">
-                <Search className="h-4 w-4" />{loading ? "Sending secure link…" : "Email Me a Secure Link"}
-              </button>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">Email is the only thing you enter here. We’ll send a one-tap secure link to verify it before showing your orders; no customer account, password, or order number is needed.</p>
-          </form>
-        ) : !accessToken && linkSent ? (
-          <div role="status" className="border border-emerald-200 bg-emerald-50 p-5 sm:p-7">
-            <h2 className="font-heading text-lg font-bold text-carbon">Check your email</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">Check <span className="font-semibold text-carbon">{email}</span> for a one-tap secure link. It expires in 15 minutes; after opening it, any guest orders for that email will appear.</p>
-            <button type="button" onClick={() => void requestOrderAccessLink(email)} disabled={loading} className="mt-4 mr-5 text-sm font-semibold text-pink transition-colors hover:text-carbon disabled:cursor-not-allowed disabled:opacity-50">{loading ? "Sending…" : "Resend secure link"}</button>
-            <button type="button" onClick={changeEmail} className="mt-4 text-sm font-semibold text-pink transition-colors hover:text-carbon">Use a different email</button>
+        <form onSubmit={findOrders} className="border border-border bg-white p-5 sm:p-7">
+          <label htmlFor="order-history-email" className="mb-2 block text-sm font-semibold text-carbon">Checkout email address</label>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input id="order-history-email" name="email" type="email" required maxLength={254} autoComplete="email" value={email} onChange={(event) => { sessionStorage.removeItem(ORDER_HISTORY_EMAIL); setEmail(event.target.value); setOrders([]); setSearched(false); setError(""); }} placeholder="you@example.com" className="min-w-0 flex-1 rounded-md border border-border px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-pink" />
+            <button type="submit" disabled={loading} className="inline-flex min-h-12 items-center justify-center gap-2 bg-carbon px-6 py-3 text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-pink disabled:cursor-not-allowed disabled:opacity-50">
+              <Search className="h-4 w-4" />{loading ? "Finding orders…" : "Find My Orders"}
+            </button>
           </div>
-        ) : loading ? (
-          <div role="status" className="border border-border p-6 text-center text-sm text-muted-foreground">Loading your secure order history…</div>
-        ) : null}
+        </form>
 
+        {loading && <div role="status" className="mt-5 border border-border p-6 text-center text-sm text-muted-foreground">Loading your order history…</div>}
         {error && <p role="alert" className="mt-5 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>}
 
         {searched && orders.length === 0 && !error && (
