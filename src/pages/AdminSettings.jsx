@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, Loader2, Save, Settings } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Check, Loader2, Save, Settings } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { queryClientInstance } from "@/lib/query-client";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import { toast } from "@/components/ui/use-toast";
 
 const DEFAULT_SETTINGS = {
   id: true,
@@ -148,6 +149,11 @@ export default function AdminSettings() {
       setSettings({ ...DEFAULT_SETTINGS, ...data });
       await queryClientInstance.invalidateQueries({ queryKey: ["store_settings"] });
       setSuccess("Store settings saved.");
+      toast({
+        variant: "success",
+        title: "Store settings saved",
+        description: "Your business, delivery, and checkout settings are up to date.",
+      });
       window.setTimeout(() => setSuccess(""), 4000);
     } catch (err) {
       console.error("Store settings update failed:", err);
@@ -161,17 +167,14 @@ export default function AdminSettings() {
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111111]">
-      <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
-          <div className="flex items-center gap-3">
-            <Link to="/admin" aria-label="Back to admin" className="flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 transition hover:border-[#ff1f8f] hover:text-[#ff1f8f]"><ArrowLeft className="h-5 w-5" /></Link>
-            <div><p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1f8f]">Plugged by Ayeley</p><h1 className="font-heading text-2xl font-bold">Store Settings</h1><p className="text-sm text-black/45">Edit your business details, checkout, delivery, and store controls.</p></div>
-          </div>
-          <Settings className="h-6 w-6 text-[#ff1f8f]" />
-        </div>
-      </header>
+      <AdminPageHeader
+        title="Store settings"
+        description="Manage your business details, delivery, checkout, and store availability."
+        width="max-w-6xl"
+        actions={<Settings className="h-5 w-5 text-[#b10b46]" aria-hidden="true" />}
+      />
 
-      <main className="mx-auto max-w-5xl px-5 py-8 sm:px-8">
+      <main className="mx-auto max-w-6xl px-5 py-7 sm:px-8 sm:py-9">
         {success && <div role="status" className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700"><Check className="h-5 w-5" />{success}</div>}
         {error && <div role="alert" className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">{error}</div>}
 
@@ -203,7 +206,7 @@ export default function AdminSettings() {
 
           <SettingsSection title="Checkout and inventory" description="Control payment options and stock reservation timing.">
             <div className="grid gap-5 md:grid-cols-2">
-              <Toggle label="Online payment" description="Allow customers to pay through Paystack." checked={settings.paystack_enabled} onChange={(value) => updateField("paystack_enabled", value)} />
+              <Toggle label="Online payment" description="Allow customers to pay through paystack." checked={settings.paystack_enabled} onChange={(value) => updateField("paystack_enabled", value)} />
               <Toggle label="Cash on delivery" description="Allow customers to pay when their order arrives." checked={settings.cod_enabled} onChange={(value) => updateField("cod_enabled", value)} />
               <NumberField label="Low stock alert threshold" value={settings.low_stock_default} min="0" step="1" onChange={(value) => updateField("low_stock_default", value)} />
               <NumberField label="Online payment stock hold (minutes)" value={settings.paystack_hold_minutes} min="1" step="1" onChange={(value) => updateField("paystack_hold_minutes", value)} />
@@ -218,7 +221,7 @@ export default function AdminSettings() {
             </div>
           </SettingsSection>
 
-          <div className="sticky bottom-4 z-20 flex justify-end"><button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-[#ff1f8f] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-pink-200 transition hover:bg-[#e60078] disabled:cursor-not-allowed disabled:opacity-60">{saving ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><Save className="h-4 w-4" />Save Changes</>}</button></div>
+          <div className="flex justify-end border-t border-black/[0.06] pt-5"><button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-[#ff1f8f] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-pink-200 transition hover:bg-[#e60078] disabled:cursor-not-allowed disabled:opacity-60">{saving ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><Save className="h-4 w-4" />Save Changes</>}</button></div>
         </form>
       </main>
     </div>

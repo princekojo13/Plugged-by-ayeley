@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Cookie,
+  Droplets,
+  Hand,
+  House,
   Menu,
   Package,
   Pill,
@@ -103,13 +106,17 @@ export default function Navbar() {
   ];
 
   const CATEGORY_ICONS = {
-    Toiletries: ShowerHead,
-    Supplements: Pill,
-    Snacks: Cookie,
-    Perfumes: SprayCan,
     "Beauty & Skincare": Sparkles,
+    Drinks: Droplets,
     "Hair Care": Scissors,
+    Food: ShoppingBag,
+    "Home & Laundry": House,
     "Other Products": Package,
+    Perfumes: SprayCan,
+    "Personal Care": Hand,
+    Snacks: Cookie,
+    Supplements: Pill,
+    Toiletries: ShowerHead,
   };
 
   const handleSearch = (event) => {

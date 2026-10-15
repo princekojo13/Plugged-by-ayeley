@@ -10,7 +10,7 @@ The application is built with React, Vite, Tailwind CSS, and Supabase.
 - Product browsing and search
 - Shopping cart
 - Guest checkout
-- Paystack online payments
+- paystack online payments
 - Pay on Delivery for eligible Greater Accra orders
 - Order tracking
 - Product reviews
@@ -35,7 +35,7 @@ The application is built with React, Vite, Tailwind CSS, and Supabase.
 - Supabase Auth
 - Supabase PostgreSQL
 - Supabase Edge Functions
-- Paystack
+- paystack
 
 ## Local Development
 

@@ -169,7 +169,7 @@ Deno.serve(async (req) => {
 
     if (isQuestion(query, ["paystack", "payment", "pay online", "momo", "pay on delivery"])) {
       const methods = [];
-      if (payOnline) methods.push("Pay Online with Paystack");
+      if (payOnline) methods.push("Pay Online with paystack");
       if (payOnDelivery) methods.push(podAccraOnly ? "Pay on Delivery within Greater Accra" : "Pay on Delivery");
       return response({
         success: true,

@@ -3,10 +3,14 @@ import {
   ArrowRight,
   BadgeCheck,
   Cookie,
+  Droplets,
+  Hand,
+  House,
   Package,
   PackageOpen,
   Pill,
   Scissors,
+  ShoppingBag,
   ShieldCheck,
   ShowerHead,
   Sparkles,
@@ -26,13 +30,17 @@ const HERO_IMG = heroImage;
 const STORY_IMG = storyImage;
 
 const CATEGORY_ICONS = {
-  Toiletries: ShowerHead,
-  Supplements: Pill,
-  Snacks: Cookie,
-  Perfumes: SprayCan,
   "Beauty & Skincare": Sparkles,
+  Drinks: Droplets,
   "Hair Care": Scissors,
+  Food: ShoppingBag,
+  "Home & Laundry": House,
   "Other Products": Package,
+  Perfumes: SprayCan,
+  "Personal Care": Hand,
+  Snacks: Cookie,
+  Supplements: Pill,
+  Toiletries: ShowerHead,
 };
 
 function SectionHeader({ title, subtitle, link }) {

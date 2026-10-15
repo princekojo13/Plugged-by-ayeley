@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, KeyRound, Loader2, MailPlus, RefreshCw, Shield, Trash2, Users } from "lucide-react";
-import { Link } from "react-router-dom";
+import { KeyRound, Loader2, MailPlus, RefreshCw, Shield, Trash2, Users } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import { toast } from "@/components/ui/use-toast";
 
 function formatDate(value) {
   if (!value) return "Never signed in";
@@ -52,6 +53,13 @@ export default function AdminAssistants() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
+  const notifySuccess = (title, message) => {
+    setSuccess(message);
+    toast({ variant: "success", title, description: message });
+  };
+  const activeCount = assistants.filter((assistant) => assistant.active && !assistant.invited).length;
+  const pendingCount = assistants.filter((assistant) => assistant.invited).length;
+
   const loadAssistants = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
@@ -85,7 +93,7 @@ export default function AdminAssistants() {
         return;
       }
       if (data?.invited || data?.enabledExisting || data?.alreadyAssistant || data?.passwordResetSent) {
-        setSuccess(data.passwordResetSent
+        notifySuccess(data.passwordResetSent ? "Password link sent" : "Assistant invitation updated", data.passwordResetSent
           ? `A password setup email was sent to ${data.email}. They should open the newest email link to choose their password.`
           : data.resent
             ? `A fresh invitation was sent to ${data.email}. They should open the newest email link to set their password.`
@@ -131,7 +139,7 @@ export default function AdminAssistants() {
       }
 
       setAssistants((current) => current.filter((item) => item.id !== assistant.id));
-      setSuccess(`Assistant account for ${assistant.email} was deleted.`);
+      notifySuccess("Assistant deleted", `Assistant account for ${assistant.email} was deleted.`);
     } catch (deleteError) {
       setError(await errorMessage(deleteError));
     } finally {
@@ -153,9 +161,9 @@ export default function AdminAssistants() {
         return;
       }
       if (data?.passwordResetSent) {
-        setSuccess(`A password reset link was sent to ${assistant.email}. They can choose a new password from the email.`);
+        notifySuccess("Password reset link sent", `A password reset link was sent to ${assistant.email}. They can choose a new password from the email.`);
       } else if (data?.invited || data?.resent) {
-        setSuccess(`A fresh invitation link was sent to ${assistant.email}. They can set their password from the email.`);
+        notifySuccess("Invitation sent", `A fresh invitation link was sent to ${assistant.email}. They can set their password from the email.`);
       } else {
         setError(data?.error || "The password setup link could not be sent.");
       }
@@ -168,24 +176,27 @@ export default function AdminAssistants() {
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111111]">
-      <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/95 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-5 py-5 sm:px-8">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <Link to="/admin" aria-label="Back to admin dashboard" className="flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white transition hover:border-[#ff1f8f] hover:text-[#ff1f8f]"><ChevronLeft className="h-5 w-5" /></Link>
-              <div><p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1f8f]">Admin</p><h1 className="mt-1 font-heading text-2xl font-bold">Assistants</h1><p className="mt-1 text-sm text-black/45">Invite staff and review their most recent sign-in.</p></div>
-            </div>
-            <button type="button" onClick={() => void loadAssistants(true)} disabled={refreshing || loading} className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#ff1f8f] hover:text-[#ff1f8f] disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
-          </div>
-        </div>
-      </header>
+      <AdminPageHeader
+        title="Assistants"
+        description="Invite staff, manage account access, and check sign-in activity."
+        actions={<button type="button" onClick={() => void loadAssistants(true)} disabled={refreshing || loading} className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#c20f4d]/40 hover:bg-[#fff7fa] hover:text-[#b10b46] disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>}
+      />
 
-      <main className="mx-auto max-w-7xl space-y-6 px-5 py-8 sm:px-8">
+      <main className="mx-auto max-w-7xl space-y-6 px-5 py-7 sm:px-8 sm:py-9">
         {error && <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">{error}</div>}
         {success && <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">{success}</div>}
 
-        <section className="rounded-2xl border border-black/[0.07] bg-white p-6 shadow-sm sm:p-7">
-          <div className="mb-5"><h2 className="font-heading text-xl font-bold">Create an assistant login</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-black/50">Send an invitation to their email. They set their own password from the invitation link. Assistants can view orders and update delivery status only.</p></div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <AssistantMetric label="All staff" value={loading ? "…" : assistants.length} detail="Assistant accounts" />
+          <AssistantMetric label="Active" value={loading ? "…" : activeCount} detail="Can access the workspace" />
+          <AssistantMetric label="Invitations" value={loading ? "…" : pendingCount} detail="Waiting for account setup" />
+        </div>
+
+        <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-5 flex items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#fff0f6] text-[#b10b46]"><MailPlus className="h-5 w-5" /></span>
+            <div><h2 className="font-heading text-xl font-bold">Create an assistant login</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-black/50">Invite staff by email. They choose their own password; assistants can view orders and update delivery status only.</p></div>
+          </div>
           <form onSubmit={inviteAssistant} className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
             <label className="block text-sm font-medium text-black/70">Assistant name<input required minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" className="admin-input mt-2 w-full" /></label>
             <label className="block text-sm font-medium text-black/70">Email address<input required type="email" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="admin-input mt-2 w-full" /></label>
@@ -199,8 +210,8 @@ export default function AdminAssistants() {
             <span className="inline-flex items-center gap-2 rounded-full bg-[#fff0f7] px-3 py-1.5 text-xs font-semibold text-[#e60078]"><Users className="h-3.5 w-3.5" />{assistants.length} {assistants.length === 1 ? "assistant" : "assistants"}</span>
           </div>
           {loading ? <div className="flex min-h-[220px] items-center justify-center"><RefreshCw className="h-8 w-8 animate-spin text-[#ff1f8f]" /></div> : assistants.length ? <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] border-collapse text-left text-sm">
-              <thead className="bg-[#fff8fc] text-[11px] font-semibold uppercase tracking-[0.12em] text-black/45">
+            <table className="w-full min-w-[840px] border-collapse text-left text-sm">
+              <thead className="bg-[#f8f5f6] text-[11px] font-semibold uppercase tracking-[0.12em] text-black/45">
                 <tr>
                   <th scope="col" className="px-4 py-3">Assistant</th>
                   <th scope="col" className="px-4 py-3">Email</th>
@@ -211,8 +222,13 @@ export default function AdminAssistants() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/[0.06]">
-                {assistants.map((assistant) => <tr key={assistant.id} className="align-middle transition hover:bg-[#fffdfd]">
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold">{assistant.name || "Assistant"}</td>
+                {assistants.map((assistant) => <tr key={assistant.id} className="align-middle transition hover:bg-[#fffafd]">
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f8edf1] text-xs font-bold uppercase text-[#9e1746]">{(assistant.name || assistant.email || "A").slice(0, 1)}</span>
+                      <span className="font-semibold">{assistant.name || "Assistant"}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-black/60">{assistant.email}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-black/55">{formatDate(assistant.created_at)}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-black/55">{formatDate(assistant.last_sign_in_at)}</td>
@@ -233,5 +249,17 @@ export default function AdminAssistants() {
         </section>
       </main>
     </div>
+  );
+}
+
+function AssistantMetric({ label, value, detail }) {
+  return (
+    <section className="rounded-2xl border border-black/[0.07] bg-white px-5 py-4 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-[0.13em] text-black/45">{label}</p>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <span className="font-heading text-3xl font-bold leading-none text-[#1b1518]">{value}</span>
+        <span className="text-right text-xs text-black/40">{detail}</span>
+      </div>
+    </section>
   );
 }

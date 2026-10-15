@@ -2,7 +2,7 @@
 
 This cleaned project archive intentionally excludes `.env.local`, `.env.loacl`, `.git`, `node_modules`, and `dist`.
 
-Keep the real `.env.local` only on the developer machine. Never put Supabase service-role keys, Paystack secret keys, OpenAI API keys, or other server secrets in Vite `VITE_*` variables.
+Keep the real `.env.local` only on the developer machine. Never put Supabase service-role keys, paystack secret keys, OpenAI API keys, or other server secrets in Vite `VITE_*` variables.
 
 Admin authorization must continue to rely on Supabase Auth and database RLS. The frontend admin route is only a UI guard.
 

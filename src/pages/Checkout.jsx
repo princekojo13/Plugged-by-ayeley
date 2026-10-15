@@ -16,7 +16,7 @@ import { SITE_CONFIG } from "@/lib/siteConfig";
 import LeafletPinPicker from "@/components/LeafletPinPicker";
 
 const PAYMENT_METHODS = {
-  PAYSTACK: "paystack",
+  paystack: "paystack",
   POD: "pay_on_delivery",
 };
 
@@ -111,7 +111,7 @@ export default function Checkout() {
   const [deliveryQuoteError, setDeliveryQuoteError] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState(
-    PAYMENT_METHODS.PAYSTACK
+    PAYMENT_METHODS.paystack
   );
 
   useEffect(() => {
@@ -131,7 +131,7 @@ export default function Checkout() {
         if (!data.paystack_enabled && data.cod_enabled) {
           setPaymentMethod(PAYMENT_METHODS.POD);
         } else if (data.paystack_enabled) {
-          setPaymentMethod(PAYMENT_METHODS.PAYSTACK);
+          setPaymentMethod(PAYMENT_METHODS.paystack);
         }
       });
     return () => { active = false; };
@@ -164,7 +164,7 @@ export default function Checkout() {
   };
 
   const handlePaymentChange = (method) => {
-    if (method === PAYMENT_METHODS.PAYSTACK && !storeSettings?.paystack_enabled) return;
+    if (method === PAYMENT_METHODS.paystack && !storeSettings?.paystack_enabled) return;
     if (method === PAYMENT_METHODS.POD && (!storeSettings?.cod_enabled || !codRegionAllowed)) return;
 
     setPaymentMethod(method);
@@ -178,7 +178,7 @@ export default function Checkout() {
     }));
 
     if (value !== "Greater Accra" && storeSettings?.cod_accra_only) {
-      setPaymentMethod(PAYMENT_METHODS.PAYSTACK);
+      setPaymentMethod(PAYMENT_METHODS.paystack);
     }
 
     setError("");
@@ -300,7 +300,7 @@ export default function Checkout() {
       );
     }
 
-    if (paymentMethod === PAYMENT_METHODS.PAYSTACK && !storeSettings?.paystack_enabled) {
+    if (paymentMethod === PAYMENT_METHODS.paystack && !storeSettings?.paystack_enabled) {
       return "Online payment is currently unavailable.";
     }
     if (paymentMethod === PAYMENT_METHODS.POD && !storeSettings?.cod_enabled) {
@@ -471,15 +471,15 @@ export default function Checkout() {
       }
 
       /*
-       * PAYSTACK
+       * paystack
        *
        * The Edge Function should return the
-       * Paystack authorization URL only after
+       * paystack authorization URL only after
        * securely creating the pending order.
        */
       if (
         paymentMethod ===
-          PAYMENT_METHODS.PAYSTACK &&
+          PAYMENT_METHODS.paystack &&
         data.payment_url
       ) {
         window.location.href =
@@ -905,13 +905,13 @@ export default function Checkout() {
                 type="button"
                 onClick={() =>
                   handlePaymentChange(
-                    PAYMENT_METHODS.PAYSTACK
+                    PAYMENT_METHODS.paystack
                   )
                 }
                 disabled={submitting}
                 className={`w-full text-left border-2 p-5 transition-colors ${
                   paymentMethod ===
-                  PAYMENT_METHODS.PAYSTACK
+                  PAYMENT_METHODS.paystack
                     ? "border-pink bg-pink/5"
                     : "border-border hover:border-pink/50"
                 } disabled:opacity-60`}
@@ -920,13 +920,13 @@ export default function Checkout() {
                   <div
                     className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center ${
                       paymentMethod ===
-                      PAYMENT_METHODS.PAYSTACK
+                      PAYMENT_METHODS.paystack
                         ? "border-pink"
                         : "border-gray-300"
                     }`}
                   >
                     {paymentMethod ===
-                      PAYMENT_METHODS.PAYSTACK && (
+                      PAYMENT_METHODS.paystack && (
                       <div className="w-2.5 h-2.5 rounded-full bg-pink" />
                     )}
                   </div>
@@ -939,7 +939,7 @@ export default function Checkout() {
                     </p>
 
                     <p className="text-sm text-muted-foreground mt-1">
-                      Pay securely online through Paystack.
+                      Pay securely online through paystack.
                     </p>
                   </div>
                 </div>
@@ -1184,10 +1184,10 @@ export default function Checkout() {
                   Processing...
                 </>
               ) : paymentMethod ===
-                PAYMENT_METHODS.PAYSTACK ? (
+                PAYMENT_METHODS.paystack ? (
                 <>
                   <CreditCard className="w-4 h-4" />
-                  Continue to Paystack
+                  Continue to paystack
                 </>
               ) : (
                 <>

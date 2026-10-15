@@ -61,13 +61,17 @@ export const SITE_CONFIG = {
 };
 
 export const CATEGORIES = [
-  { name: "Toiletries", slug: "Toiletries", icon: "ShowerHead" },
-  { name: "Supplements", slug: "Supplements", icon: "Pill" },
-  { name: "Snacks", slug: "Snacks", icon: "Cookie" },
-  { name: "Perfumes", slug: "Perfumes", icon: "SprayCan" },
   { name: "Beauty & Skincare", slug: "Beauty & Skincare", icon: "Sparkles" },
+  { name: "Drinks", slug: "Drinks", icon: "Droplets" },
+  { name: "Food", slug: "Food", icon: "ShoppingBag" },
   { name: "Hair Care", slug: "Hair Care", icon: "Scissors" },
+  { name: "Home & Laundry", slug: "Home & Laundry", icon: "House" },
   { name: "Other Products", slug: "Other Products", icon: "Package" },
+  { name: "Perfumes", slug: "Perfumes", icon: "SprayCan" },
+  { name: "Personal Care", slug: "Personal Care", icon: "Hand" },
+  { name: "Snacks", slug: "Snacks", icon: "Cookie" },
+  { name: "Supplements", slug: "Supplements", icon: "Pill" },
+  { name: "Toiletries", slug: "Toiletries", icon: "ShowerHead" },
 ];
 
 export function getDeliveryFee(region, subtotal) {

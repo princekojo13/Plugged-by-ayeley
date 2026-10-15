@@ -69,12 +69,12 @@ export default function PaymentSuccess() {
     missing: "Payment reference missing",
   }[verification.status];
   const message = {
-    checking: "We’re checking the transaction directly with Paystack. This page will only show payment as received after that check succeeds.",
-    paid: "Paystack has confirmed your payment. Your order is now marked as paid.",
-    pending: "Paystack has not confirmed this payment yet. If you completed it, check again in a moment or contact the store with your reference.",
-    failed: "Paystack did not confirm this payment. If money was deducted, contact the store with your reference.",
+    checking: "We’re checking the transaction directly with paystack. This page will only show payment as received after that check succeeds.",
+    paid: "paystack has confirmed your payment. Your order is now marked as paid.",
+    pending: "paystack has not confirmed this payment yet. If you completed it, check again in a moment or contact the store with your reference.",
+    failed: "paystack did not confirm this payment. If money was deducted, contact the store with your reference.",
     error: verification.message || "The verification service is temporarily unavailable. You can check again or contact the store with your reference.",
-    missing: "No Paystack reference was returned, so this page cannot confirm payment.",
+    missing: "No paystack reference was returned, so this page cannot confirm payment.",
   }[verification.status];
 
   return (
@@ -102,7 +102,7 @@ export default function PaymentSuccess() {
 
       <div className="bg-london/50 border border-border p-6 mb-8 text-left">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Keep this reference when contacting the store. To track delivery, enter the PBA order number from your confirmation. A Paystack redirect alone does not count as payment confirmation.
+          Keep this reference when contacting the store. To track delivery, enter the PBA order number from your confirmation. A paystack redirect alone does not count as payment confirmation.
         </p>
       </div>
 

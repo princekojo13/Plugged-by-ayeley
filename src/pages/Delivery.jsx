@@ -22,7 +22,7 @@ const STEPS = [
   {
     icon: CreditCard,
     title: "Pay securely",
-    desc: "Pay online through Paystack, or pay on delivery within Greater Accra.",
+    desc: "Pay online through paystack, or pay on delivery within Greater Accra.",
   },
   {
     icon: Truck,
@@ -158,7 +158,7 @@ export default function Delivery() {
             </h3>
 
             <p className="text-sm text-muted-foreground">
-              Pay securely through Paystack when you place your order.
+              Pay securely through paystack when you place your order.
               Available for delivery anywhere in Ghana.
             </p>
           </div>

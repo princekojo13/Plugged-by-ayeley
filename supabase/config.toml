@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.customer-orders]
 verify_jwt = false
+
+[functions.remove-product-background]
+verify_jwt = true

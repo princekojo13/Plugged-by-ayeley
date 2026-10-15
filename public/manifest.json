@@ -1,0 +1,17 @@
+{
+  "name": "Plugged by Ayeley",
+  "short_name": "Plugged",
+  "description": "Shop authentic UK-sourced products delivered across Ghana.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#170a10",
+  "theme_color": "#170a10",
+  "icons": [
+    {
+      "src": "/plugged-by-ayeley-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

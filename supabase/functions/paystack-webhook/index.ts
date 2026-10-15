@@ -36,11 +36,11 @@ async function verifySignature(body: Uint8Array, signature: string, secret: stri
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ received: false, error: "Method not allowed." }, 405);
 
-  const paystackSecret = Deno.env.get("PAYSTACK_SECRET_KEY");
+  const paystackSecret = Deno.env.get("paystack_SECRET_KEY");
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!paystackSecret || !supabaseUrl || !serviceRoleKey) {
-    console.error("Paystack webhook configuration is missing.");
+    console.error("paystack webhook configuration is missing.");
     return json({ received: false, error: "Server configuration error." }, 500);
   }
 
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
 
   const signature = req.headers.get("x-paystack-signature") || "";
   if (!signature || !(await verifySignature(rawBody, signature, paystackSecret))) {
-    return json({ received: false, error: "Invalid Paystack signature." }, 401);
+    return json({ received: false, error: "Invalid paystack signature." }, 401);
   }
 
   let event: Record<string, unknown>;
@@ -76,12 +76,12 @@ Deno.serve(async (req) => {
     });
     const result = await response.json();
     if (!response.ok || result?.status !== true || !result?.data) {
-      console.error("Paystack webhook transaction verification failed.");
+      console.error("paystack webhook transaction verification failed.");
       return json({ received: false, error: "Transaction verification failed." }, 502);
     }
     transaction = result.data;
   } catch (error) {
-    console.error("Paystack webhook could not reach Paystack:", error);
+    console.error("paystack webhook could not reach paystack:", error);
     return json({ received: false, error: "Transaction verification is temporarily unavailable." }, 502);
   }
 
@@ -105,11 +105,11 @@ Deno.serve(async (req) => {
   });
 
   if (error) {
-    console.error("Paystack webhook could not confirm the order:", error.message);
+    console.error("paystack webhook could not confirm the order:", error.message);
     return json({ received: false, error: "Order confirmation failed." }, 500);
   }
   if (data?.ok !== true) {
-    console.error("Paystack event was received but the order needs review:", data?.reason || "unknown");
+    console.error("paystack event was received but the order needs review:", data?.reason || "unknown");
     return json({ received: true, confirmed: false, reason: data?.reason || "review_required" });
   }
 

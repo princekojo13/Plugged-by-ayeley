@@ -311,7 +311,7 @@ Deno.serve(async (req: Request) => {
       return respond({ success: false, error: "Checkout is temporarily unavailable." }, 503, headers);
     }
 
-    const paystackSecret = Deno.env.get("PAYSTACK_SECRET_KEY");
+    const paystackSecret = Deno.env.get("paystack_SECRET_KEY");
     if (paymentMethod === "paystack" && !paystackSecret) {
       return respond({ success: false, error: "Online payment is not configured yet." }, 503, headers);
     }
@@ -450,7 +450,7 @@ Deno.serve(async (req: Request) => {
     const amountMinor = number(created.amount_minor);
     const currency = text(created.currency, 3) || "GHS";
     if (!reference || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
-      console.error("create_order RPC returned invalid Paystack details.");
+      console.error("create_order RPC returned invalid paystack details.");
       return respond({ success: false, error: "Online payment could not be prepared." }, 500, headers);
     }
 
@@ -465,7 +465,7 @@ Deno.serve(async (req: Request) => {
       },
     };
 
-    const callbackUrl = Deno.env.get("PAYSTACK_CALLBACK_URL")?.trim() ||
+    const callbackUrl = Deno.env.get("paystack_CALLBACK_URL")?.trim() ||
       (origin && ALLOWED_ORIGINS.has(origin) ? `${origin}/payment-success` : "");
     if (callbackUrl) paymentPayload.callback_url = callbackUrl;
 
@@ -483,14 +483,14 @@ Deno.serve(async (req: Request) => {
       });
       paystackResult = record(await paystackResponse.json());
     } catch (error) {
-      console.error("Paystack initialization request failed:", error);
+      console.error("paystack initialization request failed:", error);
       return respond({ success: false, error: "Online payment could not be started. Please contact the store before retrying." }, 502, headers);
     }
 
     const paystackData = record(paystackResult.data);
     const paymentUrl = text(paystackData.authorization_url, 2000);
     if (!paystackResponse.ok || paystackResult.status !== true || !paymentUrl) {
-      console.error("Paystack rejected transaction initialization:", paystackResponse.status, paystackResult.message);
+      console.error("paystack rejected transaction initialization:", paystackResponse.status, paystackResult.message);
       return respond({ success: false, error: "Online payment could not be started. Please contact the store before retrying." }, 502, headers);
     }
 

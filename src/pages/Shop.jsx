@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   SlidersHorizontal,
@@ -34,6 +34,10 @@ export default function Shop() {
   const minPrice = searchParams.get("minPrice") || "";
   const maxPrice = searchParams.get("maxPrice") || "";
   const filterTag = searchParams.get("filter") || "";
+
+  useEffect(() => {
+    setSearchInput(search);
+  }, [search]);
 
   const {
     products = [],
@@ -143,6 +147,11 @@ export default function Shop() {
 
   const updateParam = (key, value) => {
     const next = new URLSearchParams(searchParams);
+
+    if (key === "category") {
+      next.delete("search");
+      setSearchInput("");
+    }
 
     if (value) {
       next.set(key, value);

@@ -1,14 +1,14 @@
 // =====================================================================
-//  verify-paystack  —  called by the browser after the Paystack popup
+//  verify-paystack  —  called by the browser after the paystack popup
 //  reports success. It NEVER trusts the browser:
-//    1. asks Paystack (with the SECRET key) what really happened,
-//    2. hands Paystack's answer to the database function
+//    1. asks paystack (with the SECRET key) what really happened,
+//    2. hands paystack's answer to the database function
 //       confirm_paystack_order(), which re-checks status, currency and the
 //       exact amount against the order total, marks the order paid and
 //       deducts stock exactly once.
 //
 //  Secrets (Supabase -> Edge Functions -> Secrets):
-//    PAYSTACK_SECRET_KEY            sk_test_... / sk_live_...   (you add this)
+//    paystack_SECRET_KEY            sk_test_... / sk_live_...   (you add this)
 //    SUPABASE_URL                   (provided automatically)
 //    SUPABASE_SERVICE_ROLE_KEY      (provided automatically)
 //
@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  const secretKey = Deno.env.get("PAYSTACK_SECRET_KEY");
+  const secretKey = Deno.env.get("paystack_SECRET_KEY");
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid payment reference." }, 400);
   }
 
-  // 1. Ask Paystack what really happened.
+  // 1. Ask paystack what really happened.
   let paystack: any;
   try {
     const res = await fetch(
@@ -78,12 +78,12 @@ Deno.serve(async (req) => {
     );
     paystack = await res.json();
     if (!res.ok || !paystack?.status || !paystack?.data) {
-      console.error("verify-paystack: Paystack said no", res.status, paystack?.message);
-      return json({ error: "Paystack could not confirm this payment yet." }, 502);
+      console.error("verify-paystack: paystack said no", res.status, paystack?.message);
+      return json({ error: "paystack could not confirm this payment yet." }, 502);
     }
   } catch (err) {
-    console.error("verify-paystack: Paystack request failed", err);
-    return json({ error: "Could not reach Paystack. Please try again." }, 502);
+    console.error("verify-paystack: paystack request failed", err);
+    return json({ error: "Could not reach paystack. Please try again." }, 502);
   }
 
   const data = paystack.data;

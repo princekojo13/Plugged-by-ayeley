@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft,
   Check,
   Image as ImageIcon,
   Loader2,
   Save,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { CATEGORIES } from "@/lib/siteConfig";
+import ProductPhotoStudio from "@/components/admin/ProductPhotoStudio";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import { toast } from "@/components/ui/use-toast";
 
 const FALLBACK_CATEGORY = "UK Snacks";
 const PRODUCT_IMAGE_BUCKET = "product-images";
@@ -85,6 +88,34 @@ export default function AdminProductForm() {
   const [imageMode, setImageMode] = useState("url");
   const [selectedImageFile, setSelectedImageFile] = useState(null);
   const [selectedImagePreview, setSelectedImagePreview] = useState("");
+  const [photoStudioOpen, setPhotoStudioOpen] = useState(false);
+  const [photoStudioMessage, setPhotoStudioMessage] = useState("");
+  const [pendingAdditionalImageFiles, setPendingAdditionalImageFiles] = useState([]);
+
+  const photoSources = useMemo(() => {
+    const sources = [];
+    const mainUrl = selectedImageFile ? selectedImagePreview : form.image.trim();
+    if (mainUrl) {
+      sources.push({
+        id: "main",
+        label: selectedImageFile ? "Selected main photo" : "Main product image",
+        url: mainUrl,
+        file: selectedImageFile || undefined,
+      });
+    }
+
+    form.additional_images
+      .split(/[\n,]+/)
+      .map((url) => url.trim())
+      .filter(Boolean)
+      .forEach((url, index) => sources.push({
+        id: `additional-${index}`,
+        label: `Gallery image ${index + 1}`,
+        url,
+      }));
+
+    return sources;
+  }, [form.additional_images, form.image, selectedImageFile, selectedImagePreview]);
 
   useEffect(() => {
     if (!selectedImagePreview) return undefined;
@@ -213,7 +244,7 @@ export default function AdminProductForm() {
 
     setSaving(true);
     setError("");
-    let uploadedImagePath = null;
+    const uploadedImagePaths = [];
 
     try {
       const name = form.name.trim();
@@ -283,7 +314,8 @@ export default function AdminProductForm() {
           throw new Error(uploadResult.error.message || "The product photo could not be uploaded.");
         }
 
-        uploadedImagePath = uploadResult.data.path || imagePath;
+        const uploadedImagePath = uploadResult.data.path || imagePath;
+        uploadedImagePaths.push(uploadedImagePath);
         const publicUrl = supabase.storage
           .from(PRODUCT_IMAGE_BUCKET)
           .getPublicUrl(uploadedImagePath)
@@ -292,6 +324,27 @@ export default function AdminProductForm() {
           throw new Error("The uploaded photo URL could not be created.");
         }
         image = publicUrl;
+      }
+
+      for (const additionalFile of pendingAdditionalImageFiles) {
+        const imagePath = `products/${crypto.randomUUID()}.${PRODUCT_IMAGE_EXTENSIONS[additionalFile.type]}`;
+        setUploadingImage(true);
+        const uploadResult = await supabase.storage
+          .from(PRODUCT_IMAGE_BUCKET)
+          .upload(imagePath, additionalFile, {
+            cacheControl: "3600",
+            contentType: additionalFile.type,
+            upsert: false,
+          });
+        if (uploadResult.error) {
+          throw new Error(uploadResult.error.message || "An edited gallery photo could not be uploaded.");
+        }
+
+        const uploadedPath = uploadResult.data.path || imagePath;
+        uploadedImagePaths.push(uploadedPath);
+        const publicUrl = supabase.storage.from(PRODUCT_IMAGE_BUCKET).getPublicUrl(uploadedPath).data.publicUrl;
+        if (!publicUrl) throw new Error("An edited gallery photo URL could not be created.");
+        additionalImages.push(publicUrl);
       }
 
       const payload = {
@@ -337,20 +390,26 @@ export default function AdminProductForm() {
         }
       }
 
+      toast({
+        variant: "success",
+        title: editing ? "Product updated" : "Product created",
+        description: `${name} is saved to your product catalogue.`,
+      });
+
       navigate("/admin/products", {
         replace: true,
       });
     } catch (err) {
-      if (uploadedImagePath) {
+      if (uploadedImagePaths.length) {
         try {
           const { error: cleanupError } = await supabase.storage
             .from(PRODUCT_IMAGE_BUCKET)
-            .remove([uploadedImagePath]);
+            .remove(uploadedImagePaths);
           if (cleanupError) {
-            console.error("Could not clean up the unused product photo:", cleanupError);
+            console.error("Could not clean up unused product photos:", cleanupError);
           }
         } catch (cleanupError) {
-          console.error("Could not clean up the unused product photo:", cleanupError);
+          console.error("Could not clean up unused product photos:", cleanupError);
         }
       }
       console.error(
@@ -366,6 +425,49 @@ export default function AdminProductForm() {
       setSaving(false);
       setUploadingImage(false);
     }
+  };
+
+  const handlePhotoStudioSaved = ({ url, target }) => {
+    toast({
+      variant: "success",
+      title: "Product photo saved",
+      description: target === "main" ? "The main product photo has been updated." : "The photo was added to the product gallery.",
+    });
+    if (target === "main") {
+      setForm((current) => ({ ...current, image: url }));
+      setSelectedImageFile(null);
+      setSelectedImagePreview("");
+      setImageMode("url");
+      setPhotoStudioMessage("The edited main product photo has been saved.");
+      return;
+    }
+
+    setForm((current) => {
+      const currentImages = current.additional_images
+        .split(/[\n,]+/)
+        .map((image) => image.trim())
+        .filter(Boolean);
+      return {
+        ...current,
+        additional_images: [...currentImages, url].join("\n"),
+      };
+    });
+    setPhotoStudioMessage("The edited photo has been added to the product gallery.");
+  };
+
+  const handlePhotoStudioApplied = ({ file, target }) => {
+    setError("");
+    if (target === "main") {
+      setSelectedImageFile(file);
+      setSelectedImagePreview(URL.createObjectURL(file));
+      setImageMode("gallery");
+      setForm((current) => ({ ...current, image: "" }));
+      setPhotoStudioMessage("Studio photo ready as the main image. Save the product to finish.");
+      return;
+    }
+
+    setPendingAdditionalImageFiles((current) => [...current, file]);
+    setPhotoStudioMessage("Studio photo added to the pending gallery images. Save the product to finish.");
   };
 
   const handleDelete = async () => {
@@ -390,6 +492,12 @@ export default function AdminProductForm() {
       if (deleteError) {
         throw deleteError;
       }
+
+      toast({
+        variant: "success",
+        title: "Product deleted",
+        description: `${form.name || "The product"} has been removed from the catalogue.`,
+      });
 
       navigate("/admin/products", {
         replace: true,
@@ -419,54 +527,27 @@ export default function AdminProductForm() {
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111111]">
-      {/* Header */}
-      <header className="border-b border-black/[0.06] bg-white">
-        <div className="mx-auto max-w-3xl px-5 py-5 sm:px-8">
-          <Link
-            to="/admin/products"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-black/45 transition hover:text-[#ff1f8f]"
+      <AdminPageHeader
+        backTo="/admin/products"
+        backLabel="Back to products"
+        title={editing ? "Edit product" : "Add product"}
+        description={editing ? "Update the product details, images, and visibility." : "Create a polished product listing for your shop."}
+        width="max-w-5xl"
+        actions={editing && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={saving || deleting}
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:opacity-50"
           >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Products
-          </Link>
+            <Trash2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Delete product</span>
+            <span className="sm:hidden">Delete</span>
+          </button>
+        )}
+      />
 
-          <div className="mt-6 flex items-start justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1f8f]">
-                {editing
-                  ? "Edit Product"
-                  : "New Product"}
-              </p>
-
-              <h1 className="mt-1 font-heading text-3xl font-bold">
-                {editing
-                  ? "Edit Product"
-                  : "Add Product"}
-              </h1>
-
-              <p className="mt-2 text-sm text-black/45">
-                {editing
-                  ? "Update the product information below."
-                  : "Add a product to your store in a few simple steps."}
-              </p>
-            </div>
-
-            {editing && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={saving || deleting}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-600 hover:text-white disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-5 py-8 sm:px-8">
+      <main className="mx-auto max-w-5xl px-5 py-7 sm:px-8 sm:py-9">
         {error && (
           <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
             <p className="font-semibold">
@@ -489,7 +570,7 @@ export default function AdminProductForm() {
               </h2>
             </div>
 
-            <div className="mt-6 space-y-5">
+            <div className="mt-6 grid gap-5 md:grid-cols-2">
               <Field label="Product name">
                 <input
                   value={form.name}
@@ -530,6 +611,7 @@ export default function AdminProductForm() {
               <Field
                 label="Description"
                 hint="Tell customers what they are getting."
+                className="md:col-span-2"
               >
                 <textarea
                   value={form.description}
@@ -626,6 +708,21 @@ export default function AdminProductForm() {
             </div>
 
             <div className="mt-6">
+              <div className="mb-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoStudioMessage("");
+                    setPhotoStudioOpen(true);
+                  }}
+                  disabled={saving || uploadingImage}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#171615] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#ff1f8f] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Sparkles className="h-4 w-4" /> Edit Product Photo
+                </button>
+                {photoStudioMessage && <p role="status" className="text-sm text-emerald-700">{photoStudioMessage}</p>}
+              </div>
+
               <div
                 role="group"
                 aria-label="Product image source"
@@ -710,6 +807,11 @@ export default function AdminProductForm() {
               <div className="mt-5 grid gap-5 md:grid-cols-2">
                 <Field label="Additional image URLs" hint="Add one URL per line, or separate URLs with commas.">
                   <textarea value={form.additional_images} onChange={(event) => updateField("additional_images", event.target.value)} className="admin-input min-h-24 resize-y" placeholder="https://example.com/second-image.jpg" />
+                  {pendingAdditionalImageFiles.length > 0 && (
+                    <p role="status" className="mt-2 text-xs font-medium text-emerald-700">
+                      {pendingAdditionalImageFiles.length} studio {pendingAdditionalImageFiles.length === 1 ? "image" : "images"} will be added when you save this product.
+                    </p>
+                  )}
                 </Field>
                 <Field label="Country or origin label" hint="Optional label such as UK-sourced.">
                   <input value={form.uk_origin} onChange={(event) => updateField("uk_origin", event.target.value)} className="admin-input" maxLength={100} placeholder="UK-sourced" />
@@ -820,6 +922,17 @@ export default function AdminProductForm() {
               marked as visible.
             </p>
           </div>
+          {photoStudioOpen && (
+            <ProductPhotoStudio
+              sources={photoSources}
+              initialSourceId={photoSources[0]?.id || ""}
+              productId={editing ? id : null}
+              productName={form.name}
+              onClose={() => setPhotoStudioOpen(false)}
+              onImageSaved={handlePhotoStudioSaved}
+              onUseInForm={handlePhotoStudioApplied}
+            />
+          )}
         </form>
       </main>
     </div>
@@ -829,10 +942,11 @@ export default function AdminProductForm() {
 function Field({
   label,
   hint,
+  className = "",
   children,
 }) {
   return (
-    <label className="block">
+    <label className={`block ${className}`}>
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <span className="text-sm font-semibold text-black">
           {label}

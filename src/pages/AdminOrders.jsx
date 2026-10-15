@@ -1,9 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   ChevronDown,
-  ChevronLeft,
   ChevronUp,
   Loader2,
   Package,
@@ -12,6 +10,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import { toast } from "@/components/ui/use-toast";
 
 const STATUSES = [
   { value: "pending", label: "Pending" },
@@ -239,6 +239,12 @@ export default function AdminOrders() {
             }
           : current
       );
+
+      toast({
+        variant: "success",
+        title: "Order status updated",
+        description: `Order #${order.order_number} is now ${statusLabel(data.status).toLowerCase()}.`,
+      });
     } catch (err) {
       console.error(
         "Failed to update order status:",
@@ -296,6 +302,11 @@ export default function AdminOrders() {
           ? { ...current, ...paymentUpdate }
           : current
       );
+      toast({
+        variant: "success",
+        title: "Payment recorded",
+        description: `Payment for order #${order.order_number} was marked as received.`,
+      });
     } catch (err) {
       console.error("Could not record COD payment:", err);
       setError(err?.message || "Could not record the received payment.");
@@ -304,7 +315,7 @@ export default function AdminOrders() {
     }
   };
 
-  const verifyPaystackPayment = async (order) => {
+  const verifypaystackPayment = async (order) => {
     if (
       updating === order.id ||
       order.payment_method !== "paystack" ||
@@ -326,19 +337,26 @@ export default function AdminOrders() {
 
       await loadOrders(true);
 
-      if (data?.ok === true) return;
+      if (data?.ok === true) {
+        toast({
+          variant: "success",
+          title: "Payment verified",
+          description: `Paystack confirmed payment for order #${order.order_number}.`,
+        });
+        return;
+      }
       if (data?.reason === "payment_not_successful" && String(data.gateway_status || "").toLowerCase() === "failed") {
-        setError("Paystack confirmed that this payment failed. The order has been refreshed.");
+        setError("paystack confirmed that this payment failed. The order has been refreshed.");
       } else if (data?.reason === "payment_not_successful") {
-        setError("Paystack has not confirmed this payment yet. The order remains unpaid.");
+        setError("paystack has not confirmed this payment yet. The order remains unpaid.");
       } else if (data?.reason === "amount_mismatch") {
-        setError("Paystack reported a different amount or currency. The order is flagged for review and was not marked paid.");
+        setError("paystack reported a different amount or currency. The order is flagged for review and was not marked paid.");
       } else {
-        setError("Paystack could not confirm this payment. The payment status was not changed.");
+        setError("paystack could not confirm this payment. The payment status was not changed.");
       }
     } catch (err) {
-      console.error("Could not verify Paystack payment:", err);
-      setError(err?.message || "Could not verify the payment with Paystack.");
+      console.error("Could not verify paystack payment:", err);
+      setError(err?.message || "Could not verify the payment with paystack.");
     } finally {
       setUpdating(null);
     }
@@ -438,54 +456,13 @@ export default function AdminOrders() {
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111111]">
-      <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/95 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-5 py-5 sm:px-8">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <Link
-                to="/admin"
-                className="flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white transition hover:border-[#ff1f8f] hover:text-[#ff1f8f]"
-                aria-label="Back to admin dashboard"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </Link>
+      <AdminPageHeader
+        title="Orders"
+        description="Review payments, update fulfilment, and track delivery progress."
+        actions={<button type="button" onClick={() => loadOrders(true)} disabled={refreshing} className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#c20f4d]/40 hover:bg-[#fff7fa] hover:text-[#b10b46] disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>}
+      />
 
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ff1f8f]">
-                  Admin
-                </p>
-
-                <h1 className="mt-1 font-heading text-2xl font-bold">
-                  Orders
-                </h1>
-
-                <p className="mt-1 text-sm text-black/45">
-                  Manage customer orders and
-                  delivery progress.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => loadOrders(true)}
-              disabled={refreshing}
-              className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold transition hover:border-[#ff1f8f] hover:text-[#ff1f8f] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${
-                  refreshing
-                    ? "animate-spin"
-                    : ""
-                }`}
-              />
-              Refresh
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+      <main className="mx-auto max-w-7xl px-5 py-7 sm:px-8 sm:py-9">
         {error && (
           <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
             <XCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -499,7 +476,7 @@ export default function AdminOrders() {
             <div>
               <p className="font-semibold">Cancelled order payment needs review</p>
               <p className="mt-1 leading-6">
-                {stats.paidCancelledOrders} cancelled {stats.paidCancelledOrders === 1 ? "order is" : "orders are"} still marked paid. Confirm each payment was refunded in Paystack before treating the paid value as cash retained.
+                {stats.paidCancelledOrders} cancelled {stats.paidCancelledOrders === 1 ? "order is" : "orders are"} still marked paid. Confirm each payment was refunded in paystack before treating the paid value as cash retained.
               </p>
             </div>
           </div>
@@ -682,8 +659,8 @@ export default function AdminOrders() {
                         {order.payment_method === "paystack" &&
                           ["pending", "failed"].includes(order.payment_status) &&
                           order.payment_reference && (
-                            <button type="button" onClick={() => verifyPaystackPayment(order)} disabled={updating === order.id} className="mt-2 rounded-lg border border-black/15 px-2.5 py-1.5 text-[11px] font-bold text-black/70 transition hover:border-[#ff1f8f] hover:text-[#e60078] disabled:cursor-not-allowed disabled:opacity-60">
-                              {updating === order.id ? "Checking…" : "Check Paystack"}
+                            <button type="button" onClick={() => verifypaystackPayment(order)} disabled={updating === order.id} className="mt-2 rounded-lg border border-black/15 px-2.5 py-1.5 text-[11px] font-bold text-black/70 transition hover:border-[#ff1f8f] hover:text-[#e60078] disabled:cursor-not-allowed disabled:opacity-60">
+                              {updating === order.id ? "Checking…" : "Check paystack"}
                             </button>
                           )}
                       </td>
@@ -804,7 +781,7 @@ export default function AdminOrders() {
                             )}
 
                             <p className="mt-3 text-xs text-black/35">
-                              Paystack is marked paid after automatic
+                              paystack is marked paid after automatic
                               verification. For Pay on Delivery, record payment
                               only after you collect the cash or Mobile Money.
                             </p>
@@ -999,11 +976,11 @@ export default function AdminOrders() {
                                 order.payment_reference && (
                                   <button
                                     type="button"
-                                    onClick={() => verifyPaystackPayment(order)}
+                                    onClick={() => verifypaystackPayment(order)}
                                     disabled={updating === order.id}
                                     className="rounded-lg border border-black/15 px-3 py-2 text-xs font-bold text-black/70 transition hover:border-[#ff1f8f] hover:text-[#e60078] disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    {updating === order.id ? "Checking…" : "Check Paystack"}
+                                    {updating === order.id ? "Checking…" : "Check paystack"}
                                   </button>
                                 )}
                             </div>

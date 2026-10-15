@@ -96,7 +96,7 @@ export default function Footer() {
         <div className="grid grid-cols-2 gap-10 lg:grid-cols-4">
           {/* Brand */}
           <div className="col-span-2 lg:col-span-1">
-            <Logo variant="light" />
+            <Logo />
 
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/60">
               {settings.tagline}
